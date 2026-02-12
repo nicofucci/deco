@@ -1,0 +1,86 @@
+import requests
+import platform
+import logging
+import uuid
+from .network_discovery import NetworkDiscovery
+
+logger = logging.getLogger("DecoAgent.Heartbeat")
+
+class HeartbeatService:
+    def __init__(self, config, orchestrator_url):
+        self.config = config
+        self.base_url = orchestrator_url
+        self.discovery = NetworkDiscovery()
+
+    def register(self):
+        if self.config.agent_id:
+            logger.info(f"Agent already registered with ID: {self.config.agent_id}")
+            return True
+
+        logger.info("Registering agent...")
+        hostname = platform.node()
+        payload = {
+            "hostname": hostname,
+            "version": "2.0.0-universal",
+            "os": platform.system(),
+            "arch": platform.machine()
+        }
+        headers = {"X-Client-API-Key": self.config.api_key}
+
+        try:
+            res = requests.post(f"{self.base_url}/api/agents/register", json=payload, headers=headers, timeout=10)
+            if res.status_code == 201:
+                data = res.json()
+                self.config.set_agent_id(data["agent_id"])
+                logger.info(f"Registration successful. ID: {data['agent_id']}")
+                return True
+            else:
+                logger.error(f"Registration failed: {res.status_code} - {res.text}")
+                return False
+        except Exception as e:
+            logger.error(f"Registration error: {e}")
+            return False
+
+    def send_heartbeat(self):
+        if not self.config.agent_id:
+            logger.warning("Cannot send heartbeat: Agent not registered.")
+            return None
+
+        headers = {"X-Client-API-Key": self.config.api_key}
+        
+        # Gather info
+        network_info = self.discovery.get_network_info()
+        
+        # Optional stats (placeholders for now, would need psutil)
+        load_avg = 0.0
+        memory_usage = 0.0
+        
+        payload = {
+            "agent_id": self.config.agent_id,
+            "status": "online",
+            "load_avg": load_avg,
+            "memory_usage": memory_usage,
+            "local_ip": network_info.get("local_ip"),
+            "primary_cidr": network_info.get("primary_cidr"),
+            "interfaces": network_info.get("interfaces", [])
+        }
+
+        base_url = self.base_url.rstrip("/")
+        heartbeat_path = "/api/agents/heartbeat"
+        url = f"{base_url}{heartbeat_path}"
+        
+        logger.info(f"Enviando heartbeat a {url}...")
+
+        try:
+            res = requests.post(url, json=payload, headers=headers, timeout=5)
+            
+            if res.status_code == 200:
+                data = res.json()
+                logger.info(f"Heartbeat OK. status={data.get('status')}, pending_jobs={data.get('pending_jobs')}")
+                return data.get("pending_jobs", [])
+            else:
+                logger.warning(f"Heartbeat failed: {res.status_code} - {res.text}")
+                return None
+        except Exception as e:
+            logger.error(f"Heartbeat error: {e}")
+            return None

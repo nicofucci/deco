@@ -1,0 +1,238 @@
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+import os
+
+from app.api.routers import (
+    clients,
+    agents,
+    agents_version,
+    jobs,
+    results,
+    admin,
+    partners,
+    ai,
+    reports,
+    billing,
+    intel,
+    client_portal,
+    master_portal,
+    dashboard,
+    master_auth,
+    legacy_agents,
+    network,
+    predictive,
+    autofix,
+)
+import logging
+
+# Configure Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+
+app = FastAPI(title="Deco-Security Orchestrator", version="3.0.0")
+
+from app.services.scheduler import start_scheduler
+
+@app.on_event("startup")
+def on_startup():
+    start_scheduler()
+
+from fastapi.middleware.cors import CORSMiddleware
+
+# CORS
+origins = [
+    "https://api.deco-security.com",
+    "https://cliente.deco-security.com",
+    "https://partner.deco-security.com",
+    "https://master.deco-security.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3005",
+    "http://127.0.0.1:3005",
+    "http://localhost:3006",
+    "http://127.0.0.1:3006",
+    "http://localhost:3007",
+    "http://127.0.0.1:3007",
+    "http://localhost:3008",
+    "http://127.0.0.1:3008",
+    "http://localhost:3009",
+    "http://127.0.0.1:3009",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # permitir tanto dominios Cloudflare como accesos locales http
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Static releases for agents (public read-only)
+releases_root = "/opt/deco/releases"
+if os.path.exists(releases_root):
+    app.mount("/agents/windows", StaticFiles(directory=os.path.join(releases_root, "windows")), name="agents_windows")
+
+# Proxy Headers (Cloudflare / Nginx)
+# from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+# app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
+@app.get("/health")
+@app.get("/api/health")
+def health_check():
+    """
+    Endpoint simple para comprobar que el servicio está vivo.
+    """
+    return {
+        "status": "ok",
+        "service": "deco-security-orchestrator",
+    }
+
+@app.get("/")
+def root():
+    return {
+        "message": "Welcome to Deco-Security Orchestrator API",
+        "docs_url": "/docs",
+        "version": "3.0.0"
+    }
+
+
+# ============================
+# ROUters API
+# ============================
+
+# Gestión de clientes (admin / panel)
+app.include_router(
+    clients.router,
+    prefix="/api/clients",
+    tags=["clients"],
+)
+
+# Gestión de agentes (registro, heartbeat) autenticados por API key de cliente
+app.include_router(
+    agents.router,
+    prefix="/api/agents",
+    tags=["agents"],
+)
+
+# Gestión de jobs de escaneo
+app.include_router(
+    jobs.router,
+    prefix="/api/jobs",
+    tags=["jobs"],
+)
+
+# Portal cliente (lecturas de assets/findings/jobs/reportes)
+app.include_router(
+    client_portal.router,
+    prefix="/api/client",
+    tags=["client-portal"],
+)
+
+# Subida de resultados de escaneo
+app.include_router(
+    results.router,
+    prefix="/api/results",
+    tags=["results"],
+)
+
+
+
+from app.api.routers import admin
+
+# Panel Admin Global (protegido por Master Key)
+app.include_router(
+    admin.router,
+    prefix="/api/admin",
+    tags=["admin"],
+)
+
+from app.api.routers import partners
+
+# Panel Partner (autenticado por token/API Key)
+app.include_router(
+    partners.router,
+    prefix="/api/partners",
+    tags=["partners"],
+)
+
+# Motor de IA (Predicción de Riesgo)
+app.include_router(
+    ai.router,
+    prefix="/api/ai",
+    tags=["ai"],
+)
+
+app.include_router(
+    reports.router,
+    prefix="/api/reports",
+    tags=["reports"],
+)
+
+app.include_router(
+    billing.router,
+    prefix="/api/billing",
+    tags=["billing"],
+)
+
+app.include_router(
+    master_portal.router,
+    prefix="/api/master",
+    tags=["master-portal"],
+)
+
+from app.api.routers import master_auth
+app.include_router(
+    master_auth.router,
+    prefix="/api/master/auth",
+    tags=["master-auth"],
+)
+
+app.include_router(
+    dashboard.router,
+    prefix="/api/dashboard",
+    tags=["dashboard"],
+)
+
+app.include_router(intel.router)
+
+from app.api.routers import legacy_agents
+# Legacy Agent Support (for agents using /agent/...)
+app.include_router(
+    legacy_agents.router,
+    prefix="/agent",
+    tags=["legacy-agents"],
+)
+
+from app.api.routers import network
+app.include_router(
+    network.router,
+    prefix="/api/network",
+    tags=["network"],
+)
+
+app.include_router(
+    predictive.router,
+    prefix="/api/predictive",
+    tags=["predictive"],
+)
+
+# Autofix Engine
+app.include_router(autofix.router, prefix="/api/master", tags=["Autofix Engine"])
+
+from app.api.routers import threat_intel
+app.include_router(threat_intel.router, prefix="/api/threat-intel", tags=["Threat Intel"])
+
+app.include_router(
+    agents_version.router,
+    prefix="/api/agents",
+    tags=["agent-updates"],
+)
+
+from app.api.routers import fleet
+app.include_router(
+    fleet.router,
+    prefix="/api/fleet",
+    tags=["fleet-guardian"],
+)

@@ -1,0 +1,23 @@
+services:
+  deco-ndr-sensor:
+    build: .
+    image: deco-ndr-sensor:latest
+    container_name: deco-ndr-sensor
+    network_mode: host
+    restart: unless-stopped
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./logs:/logs
+      - ./.env:/app/.env
+    env_file:
+      - .env
+    # Healthcheck using curl (not installed by default in slim, but we can use python ping or just assume up if uvicorn runs)
+    # Adding curl installation to Dockerfile or using pure python healthcheck would be better, but user asked for healthcheck endpoint.
+    # Docker internal healthcheck:
+    healthcheck:
+      test: [ "CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/18150' || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3

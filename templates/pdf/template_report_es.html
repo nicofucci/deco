@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Informe de Seguridad - {{ client_name }}</title>
+    <style>
+        body {
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            text-align: center;
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .title {
+            font-size: 28px;
+            color: #e74c3c;
+            margin: 10px 0;
+        }
+
+        .meta {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        h2 {
+            color: #2c3e50;
+            border-bottom: 1px solid #bdc3c7;
+            padding-bottom: 5px;
+        }
+
+        .stats-grid {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .stat-box {
+            background: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+            width: 30%;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2980b9;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #7f8c8d;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th,
+        td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .severity-critical {
+            color: #c0392b;
+            font-weight: bold;
+        }
+
+        .severity-high {
+            color: #e67e22;
+            font-weight: bold;
+        }
+
+        .footer {
+            text-align: center;
+            font-size: 10px;
+            color: #95a5a6;
+            margin-top: 50px;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div class="logo">Deco-Security</div>
+        <div class="title">Informe de Seguridad</div>
+        <div class="meta">Cliente: {{ client_name }} | Fecha: {{ date }}</div>
+    </div>
+
+    <div class="section">
+        <h2>Resumen Ejecutivo</h2>
+        <div class="stats-grid">
+            <div class="stat-box">
+                <div class="stat-value">{{ stats.total_assets }}</div>
+                <div class="stat-label">Activos Analizados</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value">{{ stats.critical_findings }}</div>
+                <div class="stat-label">Hallazgos Críticos</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value">{{ stats.risk_score }}</div>
+                <div class="stat-label">Puntaje de Riesgo</div>
+            </div>
+        </div>
+        <p>
+            Este informe detalla el estado de seguridad de la infraestructura de <strong>{{ client_name }}</strong>.
+            Se han analizado {{ stats.total_assets }} activos y detectado {{ stats.critical_findings +
+            stats.high_findings }} vulnerabilidades de alta prioridad.
+        </p>
+    </div>
+
+    <div class="section">
+        <h2>Hallazgos Destacados</h2>
+        {% if findings %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Severidad</th>
+                    <th>Título</th>
+                    <th>Activo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for finding in findings %}
+                <tr>
+                    <td class="severity-{{ finding.severity|lower }}">{{ finding.severity }}</td>
+                    <td>{{ finding.title }}</td>
+                    <td>{{ finding.asset_ip }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No se encontraron hallazgos significativos en este escaneo.</p>
+        {% endif %}
+    </div>
+
+    <div class="footer">
+        Generado automáticamente por Deco-Security Orchestrator. Confidencial.
+    </div>
+</body>
+
+</html>

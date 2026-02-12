@@ -1,0 +1,37 @@
+# Configuración de Jarvis 3.0
+
+# TTS Configuration
+tts:
+  provider: xtts_http
+  base_url: "http://localhost:5002"
+  model: "tts_models/multilingual/multi-dataset/xtts_v2"
+  language: "es"
+
+# STT Configuration  
+stt:
+  provider: whisper
+  base_url: "http://localhost:9000"
+  model: "base"
+  language: "es"
+
+# Voice settings
+voice:
+  enabled: true
+  hotword: "oye jarvis"
+  sensitivity: 0.6
+  
+# Ollama
+ollama:
+  base_url: "http://localhost:11434"
+  model: "llama3.1:8b-instruct-q4_K_M"
+
+# Qdrant
+qdrant:
+  host: "localhost"
+  port: 6333
+
+# Redis
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0

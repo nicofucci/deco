@@ -1,0 +1,9 @@
+tunnel: deco-global-tunnel
+credentials-file: /etc/cloudflared/cert.json
+
+ingress:
+  - hostname: consola.deco-security.com
+    service: http://127.0.0.1:18080
+  - hostname: api.deco-security.com
+    service: http://127.0.0.1:18001
+  - service: http_status:404

@@ -1,0 +1,1241 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import ThreatIntelTab from "@/components/ThreatIntelTab";
+import {
+    getClientSummary,
+    runRemoteScan,
+    runRemoteAction,
+    getClientJobs,
+    getClientReports,
+    generateClientReport,
+    getClientNetworkAssets,
+    getClientVulnerabilities,
+    getSpecializedFindings,
+    triggerSpecializedScan,
+    getNetworkAssetsSummary,
+    getPredictiveReport,
+    triggerPredictiveAnalysis,
+    getAutofixPlaybooks,
+    generateAutofixPlaybooks,
+    approvePlaybook,
+    rejectPlaybook,
+    executePlaybook,
+    downloadFile, // New
+    API_URL,
+    getMyClients, // New for cache
+    getAssetEvidence // New for Evidence Panel
+} from "@/lib/api";
+import {
+    Shield, Activity, Server, FileText, Play, RefreshCw,
+    Download, AlertTriangle, CheckCircle, Clock, Terminal, Wifi, Laptop, Search,
+    Smartphone, Printer, HelpCircle, Bug, Flame, TrendingUp, Zap, CheckSquare, XSquare, PlayCircle, Eye // New Icons
+} from "lucide-react";
+
+import NetworkTopology from "@/components/NetworkTopology";
+import { FleetAPI } from "@/lib/api/fleet";
+import { FleetAgentsTab } from "@/components/fleet/FleetAgentsTab";
+import { AgentStatusWidget } from "@/components/fleet/AgentStatusWidget";
+import { AgentDetailSidePanel } from "@/components/fleet/AgentDetailSidePanel";
+
+const getDeviceIcon = (type: string) => {
+    switch (type?.toLowerCase()) {
+        case 'pc': return <Laptop className="w-4 h-4" />;
+        case 'server': return <Server className="w-4 h-4" />;
+        case 'printer': return <Printer className="w-4 h-4" />;
+        case 'router': return <Wifi className="w-4 h-4" />;
+        case 'mobile': return <Smartphone className="w-4 h-4" />;
+        case 'iot': return <Activity className="w-4 h-4" />; // generic
+        default: return <HelpCircle className="w-4 h-4" />;
+    }
+};
+
+export const dynamic = 'force-dynamic';
+
+const CLIENT_TABS = [
+    { id: "overview", slug: "", label: "Vista General" },
+    { id: "network", slug: "network", label: "Red Local (X-RAY)" },
+    { id: "vulnerabilities", slug: "vulnerabilities", label: "Vulnerabilidades" },
+    { id: "advanced", slug: "advanced-scans", label: "Escaneos Avanzados" },
+    { id: "predictive", slug: "predictive", label: "Análisis Predictivo" },
+    { id: "autofix", slug: "autofix", label: "Autofix IA" },
+    { id: "fleet", slug: "fleet", label: "Fleet & Agents" },
+    { id: "scans", slug: "scans", label: "Escaneos & Jobs" },
+    { id: "reports", slug: "reports", label: "Reportes" }
+];
+
+export default function ClientControlPage() {
+    const params = useParams();
+    const router = useRouter();
+    const clientId = params.clientId as string;
+    const [activeTab, setActiveTab] = useState("overview");
+    const [clientData, setClientData] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [jobs, setJobs] = useState([]);
+    const [reports, setReports] = useState<any[]>([]);
+    const [reportsLoading, setReportsLoading] = useState(false);
+    const [networkAssets, setNetworkAssets] = useState<any[]>([]);
+    const [vulns, setVulns] = useState<any[]>([]);
+    const [specializedFindings, setSpecializedFindings] = useState<any[]>([]);
+    const [selectedAssetIp, setSelectedAssetIp] = useState("");
+    const [actionLoading, setActionLoading] = useState(false);
+    const [assetSummary, setAssetSummary] = useState<any>(null);
+    const [predictiveReport, setPredictiveReport] = useState<any>(null);
+    const [autofixPlaybooks, setAutofixPlaybooks] = useState<any[]>([]);
+    const [generatingReport, setGeneratingReport] = useState<string | null>(null);
+
+    // UI Block 5 State
+    const [scopeLanOnly, setScopeLanOnly] = useState(true);
+    const [selectedAssetEvidence, setSelectedAssetEvidence] = useState<any>(null);
+
+
+    const [selectedPlaybook, setSelectedPlaybook] = useState<any>(null); // For detail view
+    const [fleetAgents, setFleetAgents] = useState<any[]>([]);
+    const [fleetDebug, setFleetDebug] = useState<{ status: string, url?: string }>({ status: "idle" });
+
+    // Agent Selection State for SidePanel
+    const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+
+    // Fetch Data
+    const loadData = async () => {
+        console.log(`[LoadData] Starting for client ${clientId}`);
+        // ... (unchanged)
+        const token = localStorage.getItem("deco_partner_api_key");
+        console.log(`[LoadData] Token present: ${!!token}`);
+        if (!token) {
+            console.error("[LoadData] No token!");
+            return;
+        }
+        try {
+            console.log("[LoadData] Step 1: Summary");
+            // 1. Client Summary - Critical
+            try {
+                const summary = await getClientSummary(token, clientId);
+                setClientData(summary);
+            } catch (err) {
+                console.error("Error loading client summary", err);
+                // Fallback for name to avoid stuck loading if header needs it
+                setClientData({ name: "Error cargando cliente", id: clientId });
+            }
+
+            // 2. Fleet Data
+            try {
+                const agents = await FleetAPI.getClientAgents(token, clientId);
+                setFleetAgents(agents);
+            } catch (err) {
+                console.error("Error loading fleet agents", err);
+            }
+
+            // 3. Jobs (Load on Scans OR Overview to ensure freshness)
+            if (activeTab === "scans" || activeTab === "overview") {
+                try {
+                    const jobsData = await getClientJobs(token, clientId);
+                    // Sort by date desc just in case
+                    const sortedJobs = (jobsData || []).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                    setJobs(sortedJobs);
+                } catch (e) { console.error(e); }
+            }
+
+            // 4. Reports
+            if (activeTab === "reports") {
+                try {
+                    setReportsLoading(true);
+                    const reportsData = await getClientReports(token, clientId);
+                    setReports(reportsData || []);
+                } catch (err) {
+                    console.error("Error loading reports", err);
+                    setReports([]);
+                } finally {
+                    setReportsLoading(false);
+                }
+            }
+
+            // 5. Network Assets
+            if (activeTab === "network" || activeTab === "advanced") {
+                try {
+                    const netData = await getClientNetworkAssets(token, clientId, scopeLanOnly ? "lan" : "all");
+                    setNetworkAssets(netData);
+                    const sum = await getNetworkAssetsSummary(token, clientId);
+                    setAssetSummary(sum);
+                } catch (e) { console.error(e); }
+            }
+
+            // 6. Vulns
+            if (activeTab === "vulnerabilities") {
+                try {
+                    const vulnData = await getClientVulnerabilities(token, clientId);
+                    setVulns(vulnData);
+                } catch (e) { console.error(e); }
+            }
+
+            // 7. Findings
+            try {
+                const findingsData = await getSpecializedFindings(token, clientId);
+                setSpecializedFindings(findingsData);
+            } catch (e) { console.error(e); }
+
+        } catch (error) {
+            console.error("Error loading client data", error);
+            // Ensure we never leave clientData null if open
+            if (!clientData) setClientData({ name: "Error Crítico Carga", id: clientId });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadData();
+    }, [scopeLanOnly]); // Reload when scope changes
+
+    // Initial Cache Load for Header Persistence
+    useEffect(() => {
+        const cacheClient = async () => {
+            if (clientData?.name && clientData.name !== "Error cargando cliente") return;
+            const token = localStorage.getItem("deco_partner_api_key");
+            if (token) {
+                try {
+                    const clients = await getMyClients(token);
+                    const match = clients.find((c: any) => c.client_id === clientId || c.id === clientId);
+                    if (match) setClientData((prev: any) => ({ ...prev, name: match.name, id: clientId }));
+                } catch (e) { }
+            }
+        };
+        cacheClient();
+    }, [clientId]);
+
+    const startPolling = async (durationMs: number = 10000) => {
+        const start = Date.now();
+        const interval = setInterval(async () => {
+            if (Date.now() - start > durationMs) {
+                clearInterval(interval);
+                return;
+            }
+            await loadData();
+        }, 2000);
+    };
+
+    const handleScan = async (type: string) => {
+        setActionLoading(true);
+        const token = localStorage.getItem("deco_partner_api_key");
+        if (!token) return;
+        try {
+            await runRemoteScan(token, clientId, type);
+            // Refresh data + Poll
+            await loadData();
+            startPolling(15000); // Poll for 15s
+        } catch (e) {
+            console.error(e);
+            alert("Error running scan");
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleSpecializedScan = async (scanType: string) => {
+        if (!selectedAssetIp) return;
+        setActionLoading(true);
+        const token = localStorage.getItem("deco_partner_api_key");
+        if (!token) return;
+        try {
+            await triggerSpecializedScan(token, clientId, scanType, selectedAssetIp);
+            alert("Escaneo especializado iniciado");
+            await loadData();
+        } catch (e) {
+            console.error(e);
+            alert("Error initiating specialized scan");
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handlePredictiveRefresh = async () => {
+        setActionLoading(true);
+        const token = localStorage.getItem("deco_partner_api_key");
+        if (!token) return;
+        try {
+            await triggerPredictiveAnalysis(token, clientId);
+            alert("Análisis predictivo iniciado");
+            await loadData();
+        } catch (e) {
+            console.error(e);
+            alert("Error initiating predictive analysis");
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleAutofixGenerate = async () => {
+        setActionLoading(true);
+        const token = localStorage.getItem("deco_partner_api_key");
+        if (!token) return;
+        try {
+            await generateAutofixPlaybooks(token, clientId);
+            alert("Generación de Playbooks iniciada");
+            await loadData();
+        } catch (e) {
+            console.error(e);
+            alert("Error generating playbooks");
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handlePlaybookAction = async (playbookId: string, action: string) => {
+        setActionLoading(true);
+        const token = localStorage.getItem("deco_partner_api_key");
+        if (!token) return;
+        try {
+            if (action === "approve") {
+                await approvePlaybook(token, playbookId);
+            } else if (action === "reject") {
+                await rejectPlaybook(token, playbookId);
+            } else if (action === "execute") {
+                await executePlaybook(token, playbookId);
+            }
+            await loadData();
+            setSelectedPlaybook(null);
+        } catch (e) {
+            console.error(e);
+            alert("Error executing playbook action");
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleGenerateReport = async (type: string) => {
+        setGeneratingReport(type);
+        const token = localStorage.getItem("deco_partner_api_key");
+        if (!token) return;
+        try {
+            await generateClientReport(token, clientId, type);
+            await loadData();
+            startPolling(10000); // Poll newly created report
+        } catch (e) {
+            console.error(e);
+            alert("Error generating report");
+        } finally {
+            setGeneratingReport(null);
+        }
+    };
+
+    const handleDownloadReport = async (downloadUrl: string) => {
+        if (!downloadUrl) return;
+        const token = localStorage.getItem("deco_partner_api_key");
+        if (!token) return;
+
+        try {
+            // Use Blob strategy to include headers
+            const { blob, filename } = await downloadFile(token, downloadUrl);
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (e) {
+            console.error("Download failed", e);
+            alert("Error al descargar reporte. Verifique permisos.");
+        }
+    };
+
+    const handleNavigateToAgent = (agentId: string) => {
+        setActiveTab("fleet");
+        setSelectedAgentId(agentId);
+    };
+
+    const handleViewEvidence = async (asset: any) => {
+        setSelectedAssetEvidence({ asset, loading: true, evidence: [] });
+        const token = localStorage.getItem("deco_partner_api_key");
+        if (!token) return;
+        try {
+            const data = await getAssetEvidence(token, clientId, asset.id);
+            setSelectedAssetEvidence({ asset, loading: false, evidence: data });
+        } catch (e) {
+            console.error("Failed to load evidence", e);
+            setSelectedAssetEvidence({ asset, loading: false, evidence: [] });
+        }
+    };
+
+    // Dedicated Fleet refresher to ensure UI stays in sync
+    useEffect(() => {
+        const controller = new AbortController();
+        const fetchFleet = async () => {
+            const token = localStorage.getItem("deco_partner_api_key");
+            if (!token) {
+                setFleetDebug({ status: "no-token" });
+                return;
+            }
+            const url = `/api/proxy/api/fleet/clients/${clientId}/agents`;
+            setFleetDebug({ status: "loading", url });
+            try {
+                const agents = await FleetAPI.getClientAgents(token, clientId, controller.signal);
+                setFleetAgents(agents);
+                setFleetDebug({ status: `ok (${agents.length})`, url });
+            } catch (e: any) {
+                console.error("[FleetRefresh] error", e);
+                setFleetDebug({ status: `error: ${e?.message || e}`, url });
+            }
+        };
+        fetchFleet();
+        return () => controller.abort();
+        // Refresh when client changes or user opens fleet tab
+    }, [clientId, activeTab]);
+
+
+    if (loading && !clientData) return <div className="p-10 text-white flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>;
+
+
+    return (
+        <div className="min-h-screen bg-slate-950 pb-20 p-6">
+            {/* Header Badge */}
+            <div className="flex items-center justify-between mb-6">
+                <div>
+                    <h1 className="text-2xl font-bold text-white mb-1">
+                        Cliente: <span className="text-blue-400">{clientData?.name || "Sin datos (Err)"}</span>
+                    </h1>
+                    <div className="flex items-center gap-3">
+                        <span className="font-mono text-xs text-slate-500 bg-slate-900 border border-slate-800 px-2 py-1 rounded">
+                            ID: {clientId}
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-purple-900 text-purple-400 border border-purple-800 font-mono">
+                            UI v2.3-WTI
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="border-b border-slate-800 flex gap-6 overflow-x-auto pb-1 mb-6">
+                {CLIENT_TABS.map((tabItem) => (
+                    <button
+                        key={tabItem.id}
+                        onClick={() => setActiveTab(tabItem.id)}
+                        className={`pb-3 text-sm font-medium whitespace-nowrap transition-colors ${activeTab === tabItem.id
+                            ? "text-blue-400 border-b-2 border-blue-400"
+                            : "text-slate-400 hover:text-white"
+                            }`}
+                    >
+                        {tabItem.label}
+                    </button>
+                ))}
+            </div>
+
+            <div className="min-h-[400px]">
+                {activeTab === "fleet" && <FleetAgentsTab agents={fleetAgents} />}
+                {activeTab === "threat_intel" && <ThreatIntelTab clientId={clientId} />}
+
+                {activeTab === "overview" && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Quick Actions */}
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+                            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                                <Terminal className="h-5 w-5 text-purple-400" />
+                                Acciones Rápidas
+                            </h3>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    onClick={async () => {
+                                        if (confirm("¿Iniciar Escaneo Rápido?")) await handleScan("quick");
+                                    }}
+                                    disabled={actionLoading}
+                                    className="p-3 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-left transition-colors disabled:opacity-50"
+                                >
+                                    <div className="font-medium text-white">Escaneo Rápido</div>
+                                    <div className="text-xs text-slate-400">Puertos Top 100</div>
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        if (confirm("¿Iniciar X-RAY Network Scan?")) await handleScan("xray_network_scan");
+                                    }}
+                                    disabled={actionLoading}
+                                    className="p-3 bg-blue-900/40 hover:bg-blue-900/60 rounded border border-blue-800 text-left transition-colors relative overflow-hidden disabled:opacity-50"
+                                >
+                                    <div className="font-medium text-blue-200 flex items-center gap-2"><Wifi className="h-4 w-4" /> X-RAY Scan</div>
+                                    <div className="text-xs text-blue-400">Descubrimiento de Red</div>
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        if (confirm("¿Iniciar Escaneo Completo? (Puede tardar)")) await handleScan("full");
+                                    }}
+                                    disabled={actionLoading}
+                                    className="p-3 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-left transition-colors disabled:opacity-50"
+                                >
+                                    <div className="font-medium text-white">Escaneo Completo</div>
+                                    <div className="text-xs text-slate-400">Toda la red</div>
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        if (confirm("¿Iniciar Escaneo de Vulnerabilidades?")) await handleScan("vuln");
+                                    }}
+                                    disabled={actionLoading}
+                                    className="p-3 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-left transition-colors disabled:opacity-50"
+                                >
+                                    <div className="font-medium text-white">Vuln Scan</div>
+                                    <div className="text-xs text-slate-400">Detectar CVEs</div>
+                                </button>
+                            </div>
+                        </div>
+
+
+                        {/* Agents Status */}
+                        <AgentStatusWidget
+                            agents={fleetAgents}
+                            onNavigateToAgent={handleNavigateToAgent}
+                        />
+                    </div>
+                )}
+
+                {/* Agent Detail Side Panel */}
+                <AgentDetailSidePanel
+                    agent={fleetAgents.find(a => a.agent_id === selectedAgentId) || null}
+                    onClose={() => setSelectedAgentId(null)}
+                />
+
+
+                {
+                    activeTab === "network" && (
+                        <div className="space-y-6">
+                            {/* Scope Toggle & Actions */}
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
+                                    <Wifi className="w-6 h-6 inline mr-2" />
+                                    Red Local (X-RAY™ V2)
+                                </h2>
+                                <div className="flex space-x-2 items-center">
+                                    <div className="flex items-center gap-2 mr-4 bg-slate-900 px-3 py-1 rounded border border-slate-800">
+                                        <span className="text-xs text-slate-400">Modo LAN</span>
+                                        <button
+                                            onClick={() => setScopeLanOnly(!scopeLanOnly)}
+                                            className={`w-8 h-4 rounded-full relative transition-colors ${scopeLanOnly ? 'bg-blue-600' : 'bg-slate-600'}`}
+                                        >
+                                            <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${scopeLanOnly ? 'left-4.5' : 'left-0.5'}`}></span>
+                                        </button>
+                                    </div>
+
+                                    <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 rounded-md border border-cyan-900/50 flex items-center">
+                                        <Clock className="w-4 h-4 mr-2" /> Historial
+                                    </button>
+                                    <button
+                                        onClick={() => handleScan("xray_network_scan")}
+                                        disabled={actionLoading}
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md shadow-lg shadow-blue-900/20 disabled:opacity-50 flex items-center"
+                                    >
+                                        {actionLoading ? "Escaneando..." : "X-RAY Scan"}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Activity Summary (Task 1.4) */}
+                            {assetSummary && (
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                    <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col items-center">
+                                        <div className="text-2xl font-bold text-white">{assetSummary.active}</div>
+                                        <div className="text-xs text-green-400 font-medium uppercase mt-1">Activos (24h)</div>
+                                    </div>
+                                    <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col items-center">
+                                        <div className="text-2xl font-bold text-indigo-400">{assetSummary.new_assets}</div>
+                                        <div className="text-xs text-indigo-300 font-medium uppercase mt-1">Nuevos</div>
+                                    </div>
+                                    <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col items-center">
+                                        <div className="text-2xl font-bold text-slate-300">{assetSummary.stable}</div>
+                                        <div className="text-xs text-slate-500 font-medium uppercase mt-1">Estables</div>
+                                    </div>
+                                    <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col items-center">
+                                        <div className="text-2xl font-bold text-red-400">{assetSummary.at_risk}</div>
+                                        <div className="text-xs text-red-500 font-medium uppercase mt-1">En Riesgo</div>
+                                    </div>
+                                    <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col items-center opacity-70">
+                                        <div className="text-2xl font-bold text-slate-500">{assetSummary.gone}</div>
+                                        <div className="text-xs text-slate-600 font-medium uppercase mt-1">Desaparecidos</div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Topology View */}
+                            <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-800">
+                                <h3 className="text-sm font-medium text-slate-400 mb-4">Topología de Red</h3>
+                                <div className="mt-2 flex space-x-4 text-xs text-slate-500">
+                                    <span className="flex items-center"><span className="w-2 h-2 rounded-full bg-green-500 mr-1"></span> Nuevo</span>
+                                    <span className="flex items-center"><span className="w-2 h-2 rounded-full bg-slate-400 mr-1"></span> Estable</span>
+                                    <span className="flex items-center"><span className="w-2 h-2 rounded-full bg-red-500 mr-1"></span> En Riesgo</span>
+                                </div>
+                            </div>
+
+                            {/* Assets Table */}
+                            <div className="bg-slate-900/50 rounded-lg border border-slate-800 overflow-hidden relative">
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-900/80 text-xs text-slate-400 uppercase">
+                                        <tr>
+                                            <th className="px-4 py-3">Status</th>
+                                            <th className="px-4 py-3">IP Address</th>
+                                            <th className="px-4 py-3">Hostname</th>
+                                            <th className="px-4 py-3">Device Type</th>
+                                            <th className="px-4 py-3">OS Check</th>
+                                            <th className="px-4 py-3">MAC / Vendor</th>
+                                            <th className="px-4 py-3">Confidence</th>
+                                            <th className="px-4 py-3">Tags</th>
+                                            <th className="px-4 py-3">Last Seen</th>
+                                            <th className="px-4 py-3 w-10"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800/50 text-sm">
+                                        {networkAssets.map((asset: any) => (
+                                            <tr
+                                                key={asset.id}
+                                                className="hover:bg-slate-800/30 transition-colors cursor-pointer group"
+                                                onClick={() => handleViewEvidence(asset)}
+                                            >
+                                                <td className="px-4 py-3">
+                                                    <span className={`px-2 py-0.5 rounded text-xs border ${asset.status === 'new' ? 'bg-green-900/30 text-green-400 border-green-800' :
+                                                        asset.status === 'at_risk' ? 'bg-red-900/30 text-red-400 border-red-800' :
+                                                            asset.status === 'gone' ? 'bg-slate-800 text-slate-500 border-slate-700' :
+                                                                'bg-blue-900/10 text-blue-400 border-blue-900/30'
+                                                        }`}>
+                                                        {asset.status || 'stable'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 font-mono text-slate-300">
+                                                    {asset.ip}
+                                                    {asset.origin_type === 'local_interface' && <span className="ml-2 text-[10px] text-yellow-500 bg-yellow-900/20 px-1 rounded">LOCAL</span>}
+                                                </td>
+                                                <td className="px-4 py-3 text-slate-300 font-medium">{asset.hostname || "-"}</td>
+                                                <td className="px-4 py-3">
+                                                    <span className="flex items-center text-slate-400">
+                                                        {getDeviceIcon(asset.device_type)}
+                                                        <span className="ml-2 capitalize">{asset.device_type?.replace(/_/g, " ") || "Unknown"}</span>
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-slate-400 text-xs">{asset.os_guess || "?"}</td>
+                                                <td className="px-4 py-3 text-xs text-slate-500">
+                                                    <div className="font-mono text-slate-400">{asset.mac || "-"}</div>
+                                                    <div className="truncate max-w-[150px]" title={asset.mac_vendor}>{asset.mac_vendor || "Unknown Vendor"}</div>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full ${(asset.confidence_score || 0) > 80 ? 'bg-green-500' :
+                                                                    (asset.confidence_score || 0) > 50 ? 'bg-blue-500' :
+                                                                        'bg-slate-500'
+                                                                    }`}
+                                                                style={{ width: `${asset.confidence_score || 0}%` }}
+                                                            ></div>
+                                                        </div>
+                                                        <span className="text-xs text-slate-400">{asset.confidence_score || 0}%</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {asset.tags && asset.tags.length > 0 ? (
+                                                            asset.tags.slice(0, 2).map((t: string) => (
+                                                                <span key={t} className="px-1.5 py-0.5 bg-slate-800 text-[10px] rounded text-slate-400 border border-slate-700">{t}</span>
+                                                            ))
+                                                        ) : <span className="text-slate-600">-</span>}
+                                                        {asset.tags?.length > 2 && <span className="text-[10px] text-slate-500">+{asset.tags.length - 2}</span>}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3 text-slate-500 text-xs">
+                                                    {new Date(asset.last_seen).toLocaleString()}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <Eye className="w-4 h-4 text-slate-600 group-hover:text-blue-400 transition-colors" />
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {networkAssets.length === 0 && (
+                                            <tr>
+                                                <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
+                                                    {scopeLanOnly ? 'No LAN assets found. Try disabling "Modo LAN" or run a new scan.' : 'No network assets found. Run a scan specific to "Network Discovery" (X-RAY).'}
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Evidence Drawer/Modal */}
+                            {selectedAssetEvidence && (
+                                <div className="fixed inset-0 z-50 flex justify-end">
+                                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedAssetEvidence(null)}></div>
+                                    <div className="relative w-full max-w-md bg-slate-900 h-full border-l border-slate-800 shadow-2xl p-6 overflow-y-auto animate-in slide-in-from-right duration-200">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                                <Shield className="w-5 h-5 text-blue-400" />
+                                                Evidencia de Identidad
+                                            </h3>
+                                            <button onClick={() => setSelectedAssetEvidence(null)} className="p-1 hover:bg-slate-800 rounded text-slate-400">
+                                                <XSquare className="w-6 h-6" />
+                                            </button>
+                                        </div>
+
+                                        <div className="space-y-6">
+                                            <div className="bg-slate-950 p-4 rounded border border-slate-800">
+                                                <div className="text-sm text-slate-500 mb-1">Asset</div>
+                                                <div className="text-xl font-mono text-blue-400 mb-1">{selectedAssetEvidence.asset.ip}</div>
+                                                <div className="text-sm text-slate-400">{selectedAssetEvidence.asset.mac || "No MAC"}</div>
+                                            </div>
+
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-slate-300 mb-3 border-b border-slate-800 pb-2">Fuentes de Verdad</h4>
+                                                {selectedAssetEvidence.loading ? (
+                                                    <div className="flex justify-center p-4">
+                                                        <RefreshCw className="w-5 h-5 animate-spin text-blue-500" />
+                                                    </div>
+                                                ) : selectedAssetEvidence.evidence && selectedAssetEvidence.evidence.length > 0 ? (
+                                                    <div className="space-y-3">
+                                                        {selectedAssetEvidence.evidence.map((ev: any, idx: number) => (
+                                                            <div key={idx} className="bg-slate-800/50 p-3 rounded text-sm border border-slate-700/50">
+                                                                <div className="flex justify-between items-start mb-2">
+                                                                    <span className="font-bold text-slate-200 uppercase text-xs px-2 py-0.5 bg-slate-700 rounded">
+                                                                        {ev.source}
+                                                                    </span>
+                                                                    <span className="text-xs text-slate-500">
+                                                                        {new Date(ev.timestamp).toLocaleTimeString()}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="font-mono text-xs text-green-300 break-all bg-slate-950 p-2 rounded border border-slate-800">
+                                                                    {ev.raw_text || JSON.stringify(ev.raw_data)}
+                                                                </div>
+                                                                {ev.confidence_delta > 0 && (
+                                                                    <div className="mt-2 text-xs text-blue-400 flex items-center">
+                                                                        <TrendingUp className="w-3 h-3 mr-1" />
+                                                                        Confidence +{ev.confidence_delta}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-slate-500 text-sm text-center py-4 bg-slate-900/50 rounded border border-slate-800 border-dashed">
+                                                        Sin evidencia cruda disponible.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                        </div>
+                    )
+                }
+
+                {
+                    activeTab === "advanced" && (
+                        <div className="space-y-6">
+                            <div className="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                                <h3 className="text-lg font-semibold text-white mb-4">Lanzar Escaneo Especializado</h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-2">Seleccionar Activo Objetivo (Detectado por X-RAY)</label>
+                                        <select
+                                            className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                                            value={selectedAssetIp}
+                                            onChange={(e) => setSelectedAssetIp(e.target.value)}
+                                        >
+                                            <option value="">-- Seleccionar IP --</option>
+                                            {networkAssets.map((asset: any) => (
+                                                <option key={asset.id} value={asset.ip}>
+                                                    {asset.ip} ({asset.hostname || "Sin nombre"}) - {asset.device_type}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <button
+                                            onClick={() => handleSpecializedScan("iot_deep_scan")}
+                                            disabled={!selectedAssetIp || actionLoading}
+                                            className="p-4 bg-slate-800 border border-slate-700 hover:border-blue-500/50 hover:bg-slate-700/50 rounded flex flex-col items-center gap-2 transition-all disabled:opacity-50 group"
+                                        >
+                                            <div className="p-3 bg-blue-900/20 rounded-full text-blue-400 group-hover:bg-blue-900/40"><Activity className="w-6 h-6" /></div>
+                                            <div className="font-medium text-white">Deep Scan IoT</div>
+                                            <div className="text-xs text-center text-slate-400">Firmware, Credenciales, UPnP</div>
+                                        </button>
+                                        <button
+                                            onClick={() => handleSpecializedScan("smb_rdp_audit")}
+                                            disabled={!selectedAssetIp || actionLoading}
+                                            className="p-4 bg-slate-800 border border-slate-700 hover:border-orange-500/50 hover:bg-slate-700/50 rounded flex flex-col items-center gap-2 transition-all disabled:opacity-50 group"
+                                        >
+                                            <div className="p-3 bg-orange-900/20 rounded-full text-orange-400 group-hover:bg-orange-900/40"><Shield className="w-6 h-6" /></div>
+                                            <div className="font-medium text-white">Auditoría SMB/RDP</div>
+                                            <div className="text-xs text-center text-slate-400">Versiones Inseguras, Auth</div>
+                                        </button>
+                                        <button
+                                            onClick={() => handleSpecializedScan("critical_service_fingerprint")}
+                                            disabled={!selectedAssetIp || actionLoading}
+                                            className="p-4 bg-slate-800 border border-slate-700 hover:border-purple-500/50 hover:bg-slate-700/50 rounded flex flex-col items-center gap-2 transition-all disabled:opacity-50 group"
+                                        >
+                                            <div className="p-3 bg-purple-900/20 rounded-full text-purple-400 group-hover:bg-purple-900/40"><Search className="w-6 h-6" /></div>
+                                            <div className="font-medium text-white">Fingerprint de Servicios</div>
+                                            <div className="text-xs text-center text-slate-400">Banners, Versiones, CVEs</div>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                                <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-950">
+                                    <h3 className="font-semibold text-white">Hallazgos Especializados</h3>
+                                    <button onClick={loadData} className="text-slate-400 hover:text-white"><RefreshCw className="h-4 w-4" /></button>
+                                </div>
+                                <table className="min-w-full divide-y divide-slate-800">
+                                    <thead className="bg-slate-950">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Detectado</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Activo</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Tipo Job</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Gravedad</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Datos Clave</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800 bg-slate-900/50">
+                                        {specializedFindings.map((f: any) => (
+                                            <tr key={f.id}>
+                                                <td className="px-6 py-4 text-xs text-slate-500">{new Date(f.detected_at).toLocaleString()}</td>
+                                                <td className="px-6 py-4 text-sm text-slate-300">
+                                                    {networkAssets.find((a: any) => a.id === f.asset_id)?.ip || f.asset_id.substring(0, 8)}
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-white capitalize">{f.job_type.replace(/_/g, " ")}</td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${f.severity === 'critical' ? 'bg-red-900/50 text-red-500 border border-red-800' :
+                                                        f.severity === 'high' ? 'bg-orange-900/50 text-orange-500 border border-orange-800' :
+                                                            'bg-blue-900/20 text-blue-400 border border-blue-800'
+                                                        }`}>
+                                                        {f.severity}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-xs text-slate-400 font-mono">
+                                                    <div className="max-w-[300px] overflow-hidden truncate">
+                                                        {JSON.stringify(f.data)}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {specializedFindings.length === 0 && (
+                                            <tr><td colSpan={5} className="p-6 text-center text-slate-500">No se han encontrado hallazgos especializados. Seleccione un activo y lance un escaneo arriba.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )
+                }
+
+                {
+                    activeTab === "scans" && (
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <h3 className="text-lg font-semibold text-white">Historial de Trabajos</h3>
+                                <button onClick={loadData} className="text-slate-400 hover:text-white"><RefreshCw className="h-4 w-4" /></button>
+                            </div>
+                            <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                                <table className="min-w-full divide-y divide-slate-800">
+                                    <thead className="bg-slate-950">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">ID</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Tipo</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Target</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Estado</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Fecha</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800">
+                                        {jobs.map((job: any) => (
+                                            <tr key={job.id}>
+                                                <td className="px-4 py-3 text-xs text-slate-400 font-mono">{job.id.substring(0, 8)}...</td>
+                                                <td className="px-4 py-3 text-sm text-white">{job.type}</td>
+                                                <td className="px-4 py-3 text-sm text-slate-300">{job.target}</td>
+                                                <td className="px-4 py-3 text-sm">
+                                                    <span className={`px-2 py-1 rounded text-xs ${job.status === "completed" ? "bg-green-900/30 text-green-400" :
+                                                        job.status === "running" ? "bg-blue-900/30 text-blue-400" :
+                                                            "bg-slate-800 text-slate-400"
+                                                        }`}>
+                                                        {job.status}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-slate-400">
+                                                    {new Date(job.created_at).toLocaleString()}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {jobs.length === 0 && (
+                                            <tr><td colSpan={5} className="p-4 text-center text-slate-500">No hay trabajos recientes</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )
+                }
+
+                {
+                    activeTab === "vulnerabilities" && (
+                        <div className="space-y-6">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-red-400 to-orange-400 flex items-center">
+                                    <Bug className="w-6 h-6 mr-2 text-red-500" />
+                                    Gestión de Vulnerabilidades
+                                </h2>
+                                <button onClick={loadData} className="text-slate-400 hover:text-white"><RefreshCw className="h-4 w-4" /></button>
+                            </div>
+
+                            <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                                <table className="min-w-full divide-y divide-slate-800">
+                                    <thead className="bg-slate-950">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">CVE ID</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Severity</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Score</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Exploit?</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Description</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Detected</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800">
+                                        {vulns.map((v: any) => (
+                                            <tr key={v.id} className="hover:bg-slate-800/30">
+                                                <td className="px-4 py-3 font-mono text-sm text-white">{v.cve}</td>
+                                                <td className="px-4 py-3">
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${v.severity === "critical" ? "bg-red-900/50 text-red-400 border border-red-800" :
+                                                        v.severity === "high" ? "bg-orange-900/50 text-orange-400 border border-orange-800" :
+                                                            "bg-slate-800 text-slate-400"
+                                                        }`}>
+                                                        {v.severity.toUpperCase()}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-slate-300 font-bold">{v.cvss_score}</td>
+                                                <td className="px-4 py-3">
+                                                    {v.exploit_available ?
+                                                        <span className="flex items-center text-red-400 text-xs font-bold"><Flame className="w-3 h-3 mr-1" /> YES</span> :
+                                                        <span className="text-slate-600 text-xs">No</span>
+                                                    }
+                                                </td>
+                                                <td className="px-4 py-3 text-sm text-slate-400 max-w-md truncate" title={v.description_short}>
+                                                    {v.description_short || "-"}
+                                                </td>
+                                                <td className="px-4 py-3 text-xs text-slate-500">
+                                                    {new Date(v.last_detected).toLocaleDateString()}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {vulns.length === 0 && (
+                                            <tr><td colSpan={6} className="p-8 text-center text-slate-500">No vulnerabilities detected yet.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )
+                }
+
+                {
+                    activeTab === "predictive" && (
+                        <div className="space-y-6">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-400 flex items-center">
+                                    <TrendingUp className="w-6 h-6 mr-2 text-purple-500" />
+                                    Inteligencia Predictiva (V2)
+                                </h2>
+                                <button
+                                    onClick={handlePredictiveRefresh}
+                                    disabled={actionLoading}
+                                    className="px-4 py-2 bg-purple-900/40 text-purple-300 border border-purple-800 rounded hover:bg-purple-900/60 flex items-center"
+                                >
+                                    <RefreshCw className={`w-4 h-4 mr-2 ${actionLoading ? 'animate-spin' : ''}`} />
+                                    Relanzar Análisis
+                                </button>
+                            </div>
+
+                            {predictiveReport ? (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    {/* Score Widget */}
+                                    <div className="bg-slate-900 border border-slate-800 rounded-lg p-6 flex flex-col items-center justify-center relative overflow-hidden">
+                                        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent"></div>
+                                        <h3 className="text-slate-400 text-sm uppercase tracking-wider mb-2 z-10">Riesgo Predictivo</h3>
+                                        <div className={`text-6xl font-black z-10 ${predictiveReport.score >= 80 ? "text-green-500" :
+                                            predictiveReport.score >= 50 ? "text-yellow-500" : "text-red-500"
+                                            }`}>
+                                            {predictiveReport.score}
+                                        </div>
+                                        <div className="text-sm text-slate-500 mt-2 z-10">/ 100</div>
+                                        <div className="mt-4 px-3 py-1 rounded bg-slate-950 text-xs text-slate-400 border border-slate-800 z-10">
+                                            {predictiveReport.score >= 80 ? "Red Estable" :
+                                                predictiveReport.score >= 50 ? "Vigilancia Recomendada" : "Alta Inestabilidad Detectada"}
+                                        </div>
+                                    </div>
+
+                                    {/* Signals List */}
+                                    <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                                        <div className="px-6 py-4 border-b border-slate-800 bg-slate-950">
+                                            <h3 className="font-semibold text-white">Señales Detectadas</h3>
+                                        </div>
+                                        <div className="divide-y divide-slate-800">
+                                            {predictiveReport.signals.length === 0 ? (
+                                                <div className="p-8 text-center text-slate-500">
+                                                    <CheckCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                                                    No se han detectado señales de riesgo anómalas.
+                                                </div>
+                                            ) : (
+                                                predictiveReport.signals.map((sig: any, idx: number) => (
+                                                    <div key={idx} className="p-4 flex items-start gap-4 hover:bg-slate-800/30 transition-colors">
+                                                        <div className={`mt-1 p-2 rounded-full ${sig.severity === "high" ? "bg-red-900/20 text-red-500" :
+                                                            sig.severity === "medium" ? "bg-orange-900/20 text-orange-500" :
+                                                                "bg-blue-900/20 text-blue-500"
+                                                            }`}>
+                                                            <Activity className="w-4 h-4" />
+                                                        </div>
+                                                        <div className="flex-1">
+                                                            <div className="flex justify-between">
+                                                                <div className="font-medium text-white capitalize">{sig.signal_type.replace(/_/g, " ")}</div>
+                                                                <div className={`text-xs px-2 py-0.5 rounded capitalize ${sig.severity === "high" ? "bg-red-900/30 text-red-400" :
+                                                                    sig.severity === "medium" ? "bg-orange-900/30 text-orange-400" :
+                                                                        "bg-blue-900/30 text-blue-400"
+                                                                    }`}>
+                                                                    {sig.severity}
+                                                                </div>
+                                                            </div>
+                                                            <p className="text-sm text-slate-400 mt-1">{sig.description}</p>
+                                                            {sig.score_delta !== 0 && (
+                                                                <div className="text-xs text-red-400 mt-1 font-mono">Impacto en score: {sig.score_delta}</div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="p-8 text-center text-slate-400">Cargando análisis...</div>
+                            )}
+                        </div>
+                    )
+                }
+
+                {
+                    activeTab === "autofix" && (
+                        <div className="space-y-6">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-teal-400 to-emerald-400 flex items-center">
+                                    <Zap className="w-6 h-6 mr-2 text-teal-500" />
+                                    Autofix IA Engine™
+                                </h2>
+                                <button
+                                    onClick={handleAutofixGenerate}
+                                    disabled={actionLoading}
+                                    className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded shadow-lg shadow-teal-900/20 flex items-center disabled:opacity-50"
+                                >
+                                    <Zap className={`w-4 h-4 mr-2 ${actionLoading ? 'animate-pulse' : ''}`} />
+                                    Generar Playbooks
+                                </button>
+                            </div>
+
+                            <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                                <table className="min-w-full divide-y divide-slate-800">
+                                    <thead className="bg-slate-950">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Título</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Riesgo</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Estado</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Fecha</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Acción</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800 bg-slate-900/30">
+                                        {autofixPlaybooks.map((pb: any) => (
+                                            <tr key={pb.id} className="hover:bg-slate-800/50">
+                                                <td className="px-6 py-4">
+                                                    <div className="font-medium text-white">{pb.title}</div>
+                                                    <div className="text-xs text-slate-500 font-mono">{pb.vulnerability_id ? "Vuln Fix" : "General"}</div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${pb.risk_level === 'high' ? 'bg-red-900/50 text-red-500' :
+                                                        pb.risk_level === 'medium' ? 'bg-orange-900/50 text-orange-500' :
+                                                            'bg-green-900/50 text-green-500'
+                                                        }`}>
+                                                        {pb.risk_level}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold uppercase border ${pb.status === 'approved' ? 'bg-green-900/20 text-green-400 border-green-800' :
+                                                        pb.status === 'executed' ? 'bg-blue-900/20 text-blue-400 border-blue-800' :
+                                                            pb.status === 'rejected' ? 'bg-red-900/20 text-slate-500 border-red-900/50 line-through' :
+                                                                'bg-slate-800 text-yellow-400 border-yellow-900/50'
+                                                        }`}>
+                                                        {pb.status}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-slate-400">
+                                                    {new Date(pb.created_at).toLocaleDateString()}
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <button
+                                                        onClick={() => setSelectedPlaybook(pb)}
+                                                        className="text-blue-400 hover:text-white flex items-center text-sm"
+                                                    >
+                                                        <Eye className="w-4 h-4 mr-1" /> Ver
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {autofixPlaybooks.length === 0 && (
+                                            <tr><td colSpan={5} className="p-8 text-center text-slate-500">No hay playbooks generados.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Detail Modal */}
+                            {selectedPlaybook && (
+                                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                                    <div className="bg-slate-900 border border-slate-700 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+                                        <div className="p-6 border-b border-slate-800 flex justify-between items-start">
+                                            <div>
+                                                <h3 className="text-xl font-bold text-white mb-1">{selectedPlaybook.title}</h3>
+                                                <div className="text-sm text-slate-400 font-mono">ID: {selectedPlaybook.id}</div>
+                                            </div>
+                                            <button onClick={() => setSelectedPlaybook(null)} className="text-slate-500 hover:text-white">
+                                                <XSquare className="w-6 h-6" />
+                                            </button>
+                                        </div>
+                                        <div className="p-6 space-y-4">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <div className="text-xs text-slate-500 uppercase mb-1">Estado Actual</div>
+                                                    <div className="text-lg font-mono text-white">{selectedPlaybook.status}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-xs text-slate-500 uppercase mb-1">Nivel de Riesgo</div>
+                                                    <div className="text-lg font-mono text-white">{selectedPlaybook.risk_level}</div>
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-slate-950 p-4 rounded border border-slate-800">
+                                                <code className="text-sm text-green-400 whitespace-pre-wrap">
+                                                    {JSON.stringify(selectedPlaybook.playbook_json, null, 2)}
+                                                </code>
+                                            </div>
+
+                                            {/* Action Buttons */}
+                                            <div className="flex gap-3 pt-4 border-t border-slate-800">
+                                                {selectedPlaybook.status === 'draft' && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => handlePlaybookAction(selectedPlaybook.id, 'approve')}
+                                                            className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white rounded font-medium flex justify-center items-center gap-2"
+                                                        >
+                                                            <CheckSquare className="w-4 h-4" /> Aprobar
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handlePlaybookAction(selectedPlaybook.id, 'reject')}
+                                                            className="flex-1 py-3 bg-red-900/50 hover:bg-red-900 text-red-200 border border-red-800 rounded font-medium flex justify-center items-center gap-2"
+                                                        >
+                                                            <XSquare className="w-4 h-4" /> Rechazar
+                                                        </button>
+                                                    </>
+                                                )}
+                                                {selectedPlaybook.status === 'approved' && (
+                                                    <button
+                                                        onClick={() => handlePlaybookAction(selectedPlaybook.id, 'execute')}
+                                                        className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium flex justify-center items-center gap-2"
+                                                    >
+                                                        <PlayCircle className="w-4 h-4" /> Ejecutar Playbook
+                                                    </button>
+                                                )}
+                                                {(selectedPlaybook.status === 'executed' || selectedPlaybook.status === 'rejected') && (
+                                                    <div className="w-full text-center text-slate-500 py-2 italic border border-slate-800 rounded">
+                                                        Este playbook ya fue procesado ({selectedPlaybook.status}).
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )
+                }
+
+                {
+                    activeTab === "reports" && (
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <button
+                                    onClick={() => handleGenerateReport("executive")}
+                                    disabled={!!generatingReport}
+                                    className="p-4 bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-lg text-left transition-colors group disabled:opacity-50"
+                                >
+                                    <FileText className={`h-6 w-6 text-blue-500 mb-2 ${generatingReport === "executive" ? "animate-spin" : "group-hover:scale-110 transition-transform"}`} />
+                                    <div className="font-semibold text-white">
+                                        {generatingReport === "executive" ? "Generando..." : "Informe Ejecutivo"}
+                                    </div>
+                                    <div className="text-xs text-slate-400 mt-1">Resumen de alto nivel para directivos.</div>
+                                </button>
+                                <button
+                                    onClick={() => handleGenerateReport("technical")}
+                                    disabled={!!generatingReport}
+                                    className="p-4 bg-slate-900 border border-slate-800 hover:border-purple-500 rounded-lg text-left transition-colors group disabled:opacity-50"
+                                >
+                                    <Activity className={`h-6 w-6 text-purple-500 mb-2 ${generatingReport === "technical" ? "animate-spin" : "group-hover:scale-110 transition-transform"}`} />
+                                    <div className="font-semibold text-white">
+                                        {generatingReport === "technical" ? "Generando..." : "Informe Técnico"}
+                                    </div>
+                                    <div className="text-xs text-slate-400 mt-1">Detalles profundos para IT/SecOps.</div>
+                                </button>
+                                <button
+                                    onClick={() => handleScan("xray_network_scan")}
+                                    className="p-4 bg-slate-900 border border-slate-800 hover:border-cyan-500 rounded-lg text-left transition-colors group"
+                                >
+                                    <Wifi className="h-6 w-6 text-cyan-500 mb-2 group-hover:scale-110 transition-transform" />
+                                    <div className="font-semibold text-white">Reporte de Red</div>
+                                    <div className="text-xs text-slate-400 mt-1">Inventario de X-RAY Scan.</div>
+                                </button>
+                            </div>
+
+                            <div>
+                                <h3 className="text-lg font-semibold text-white mb-4">Reportes Disponibles</h3>
+                                {reportsLoading && <div className="text-slate-500 text-sm">Cargando reportes...</div>}
+                                {!reportsLoading && (
+                                    <div className="space-y-2">
+                                        {reports.length === 0 ? (
+                                            <div className="text-slate-500 italic">No hay reportes generados.</div>
+                                        ) : (
+                                            reports.map((rep: any) => (
+                                                <div key={rep.id} className="flex justify-between items-center p-3 bg-slate-900 border border-slate-800 rounded">
+                                                    <div className="flex items-center gap-3">
+                                                        <FileText className="h-5 w-5 text-slate-400" />
+                                                        <div>
+                                                            <div className="text-white font-medium">
+                                                                {rep.title || rep.type} ({rep.status || "listo"})
+                                                            </div>
+                                                            <div className="text-xs text-slate-500">
+                                                                {new Date(rep.generated_at).toLocaleString()}
+                                                            </div>
+                                                            {rep.summary && (
+                                                                <div className="text-xs text-slate-500 line-clamp-1">{rep.summary}</div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleDownloadReport(rep.download_url)}
+                                                        className="text-blue-400 hover:text-blue-300 text-sm flex items-center gap-1"
+                                                    >
+                                                        <Download className="h-4 w-4" /> Descargar
+                                                    </button>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )
+                }
+
+            </div >
+        </div >
+    );
+}

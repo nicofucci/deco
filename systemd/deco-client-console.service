@@ -1,0 +1,17 @@
+[Unit]
+Description=Deco Security Client Console (Port 3005)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/deco/dashboard_security
+Environment="NODE_ENV=production"
+Environment="PORT=3005"
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=default.target

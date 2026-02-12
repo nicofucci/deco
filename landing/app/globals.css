@@ -1,0 +1,154 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: #050505;
+    --foreground: #e5e5e5;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: #050505;
+      --foreground: #e5e5e5;
+    }
+  }
+
+  body {
+    color: var(--foreground);
+    background: var(--background);
+    font-family: Arial, Helvetica, sans-serif;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Scrollbar from Imported Design */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #000;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #10b981;
+}
+
+/* 3D Core Animation Styles */
+.scene {
+  perspective: 1000px;
+  width: 300px;
+  height: 300px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.reactor {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  transform-style: preserve-3d;
+  animation: rotateReactor 20s infinite linear;
+}
+
+.ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 50%;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.1);
+}
+
+.ring:nth-child(1) {
+  width: 100%;
+  height: 100%;
+  transform: translate(-50%, -50%) rotateX(0deg);
+  border-color: rgba(16, 185, 129, 0.6);
+}
+
+.ring:nth-child(2) {
+  width: 120%;
+  height: 120%;
+  transform: translate(-50%, -50%) rotateX(60deg);
+  border-style: dashed;
+}
+
+.ring:nth-child(3) {
+  width: 80%;
+  height: 80%;
+  transform: translate(-50%, -50%) rotateY(60deg);
+}
+
+.ring:nth-child(4) {
+  width: 140%;
+  height: 140%;
+  transform: translate(-50%, -50%) rotateX(-45deg) rotateY(45deg);
+  border-width: 2px;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.core-sphere {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 60px;
+  height: 60px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, #10b981 0%, #064e3b 60%, transparent 100%);
+  border-radius: 50%;
+  box-shadow: 0 0 50px #10b981;
+  animation: pulseCore 3s infinite ease-in-out;
+}
+
+@keyframes rotateReactor {
+  0% {
+    transform: rotateX(0) rotateY(0) rotateZ(0);
+  }
+
+  100% {
+    transform: rotateX(360deg) rotateY(180deg) rotateZ(360deg);
+  }
+}
+
+@keyframes pulseCore {
+
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.8;
+  }
+
+  50% {
+    transform: translate(-50%, -50%) scale(1.2);
+    opacity: 1;
+    box-shadow: 0 0 80px #10b981;
+  }
+}
+
+.glass-panel {
+  background: rgba(10, 10, 10, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.text-gradient-cyber {
+  background: linear-gradient(to right, #34d399, #3b82f6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+::selection {
+  background-color: #06b6d4;
+  color: #000;
+}

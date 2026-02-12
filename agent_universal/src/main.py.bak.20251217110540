@@ -1,0 +1,67 @@
+import time
+import sys
+import logging
+from config import Config, ORCHESTRATOR_URL
+from services.logging_utils import setup_logging
+from services.heartbeat import HeartbeatService
+from services.jobs import JobService
+
+def main():
+    logger = setup_logging()
+    logger.info("Deco-Security Universal Agent Starting...")
+
+    # 1. Load Config
+    config = Config()
+    
+    # 2. Check API Key
+    if not config.api_key:
+        logger.warning("No API Key found.")
+        # Interactive Prompt (CLI fallback)
+        print("\n" + "="*40)
+        print(" DECO-SECURITY AGENT SETUP")
+        print("="*40)
+        print("Por favor, introduce tu API Key de Cliente.")
+        try:
+            key = input("API Key: ").strip()
+            if key:
+                config.set_api_key(key)
+                logger.info("API Key stored.")
+            else:
+                logger.error("API Key is required. Exiting.")
+                sys.exit(1)
+        except EOFError:
+            # Running in non-interactive mode (service) without key
+            logger.error("Running in background without API Key. Cannot proceed.")
+            sys.exit(1)
+
+    # 3. Services Init
+    heartbeat = HeartbeatService(config, ORCHESTRATOR_URL)
+    jobs = JobService(config, ORCHESTRATOR_URL)
+
+    # 4. Registration
+    if not heartbeat.register():
+        logger.error("Registration failed. Retrying in loop...")
+
+    # 5. Main Loop
+    logger.info("Entering main loop...")
+    while True:
+        try:
+            # Heartbeat
+            pending_jobs = heartbeat.send_heartbeat()
+            
+            # Jobs
+            if pending_jobs:
+                jobs.process_jobs(pending_jobs)
+            
+            # Sleep
+            time.sleep(10)
+            
+        except KeyboardInterrupt:
+            logger.info("Stopping agent...")
+            break
+        except Exception as e:
+            logger.error(f"Unexpected error in main loop: {e}")
+            time.sleep(10)
+
+if __name__ == "__main__":
+    main()

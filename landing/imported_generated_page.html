@@ -1,0 +1,800 @@
+<html lang="es" class="scroll-smooth"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DECO SECURITY | Digital Immune System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.iconify.design/3/3.1.0/iconify.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        cyber: {
+                            500: '#10b981', // Emerald for positive security
+                            900: '#064e3b',
+                        },
+                        void: '#050505',
+                        panel: '#0a0a0a',
+                    },
+                    animation: {
+                        'spin-slow': 'spin 15s linear infinite',
+                        'spin-reverse-slow': 'spin 20s linear infinite reverse',
+                        'pulse-glow': 'pulseGlow 4s ease-in-out infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                        'scan': 'scan 4s linear infinite',
+                    },
+                    keyframes: {
+                        pulseGlow: {
+                            '0%, 100%': { opacity: '0.6', boxShadow: '0 0 20px rgba(16, 185, 129, 0.2)' },
+                            '50%': { opacity: '1', boxShadow: '0 0 40px rgba(16, 185, 129, 0.5)' },
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-20px)' },
+                        },
+                        scan: {
+                            '0%': { transform: 'translateY(-100%)' },
+                            '100%': { transform: 'translateY(100%)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #020202;
+            color: #e5e5e5;
+            overflow-x: hidden;
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #000;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #10b981;
+        }
+
+        /* 3D Core Animation Styles */
+        .scene {
+            perspective: 1000px;
+            width: 300px;
+            height: 300px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .reactor {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            transform-style: preserve-3d;
+            animation: rotateReactor 20s infinite linear;
+        }
+        .ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.1);
+        }
+        .ring:nth-child(1) { width: 100%; height: 100%; transform: translate(-50%, -50%) rotateX(0deg); border-color: rgba(16, 185, 129, 0.6); }
+        .ring:nth-child(2) { width: 120%; height: 120%; transform: translate(-50%, -50%) rotateX(60deg); border-style: dashed; }
+        .ring:nth-child(3) { width: 80%; height: 80%; transform: translate(-50%, -50%) rotateY(60deg); }
+        .ring:nth-child(4) { width: 140%; height: 140%; transform: translate(-50%, -50%) rotateX(-45deg) rotateY(45deg); border-width: 2px; border-color: rgba(59, 130, 246, 0.3); }
+        
+        .core-sphere {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 60px;
+            height: 60px;
+            transform: translate(-50%, -50%);
+            background: radial-gradient(circle, #10b981 0%, #064e3b 60%, transparent 100%);
+            border-radius: 50%;
+            box-shadow: 0 0 50px #10b981;
+            animation: pulseCore 3s infinite ease-in-out;
+        }
+
+        @keyframes rotateReactor {
+            0% { transform: rotateX(0) rotateY(0) rotateZ(0); }
+            100% { transform: rotateX(360deg) rotateY(180deg) rotateZ(360deg); }
+        }
+        @keyframes pulseCore {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+            50% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; box-shadow: 0 0 80px #10b981; }
+        }
+
+        /* Scanline Overlay */
+        .scanlines {
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.2) 50%,
+                rgba(0,0,0,0.2)
+            );
+            background-size: 100% 4px;
+            position: fixed;
+            pointer-events: none;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 50;
+            opacity: 0.15;
+        }
+        
+        .glass-panel {
+            background: rgba(10, 10, 10, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .text-gradient {
+            background: linear-gradient(to right, #ffffff, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .text-gradient-cyber {
+            background: linear-gradient(to right, #34d399, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Utility for fade-in scroll */
+        .reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 1s ease-out;
+        }
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body class="antialiased selection:bg-emerald-500/30 selection:text-emerald-200">
+
+    <!-- Background Canvas for Particles -->
+    <canvas id="neural-net" class="fixed top-0 left-0 w-full h-full -z-10"></canvas>
+    
+    <!-- Scanlines Overlay -->
+    <div class="scanlines"></div>
+
+    <!-- Vignette -->
+    <div class="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.8)_100%)] z-0"></div>
+
+    <!-- Navigation -->
+    <nav class="fixed top-0 w-full z-40 border-b border-white/5 glass-panel">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2 group cursor-pointer">
+                <span class="iconify text-emerald-500 text-xl group-hover:rotate-90 transition-transform duration-700" data-icon="lucide:shield-check"></span>
+                <span class="font-sans font-semibold text-lg tracking-widest text-white">DECO<span class="font-light text-neutral-500">SECURITY</span></span>
+            </div>
+            
+            <div class="hidden md:flex items-center gap-8 text-xs font-medium tracking-wide text-neutral-400">
+                <a href="#concept" class="hover:text-white transition-colors" data-i18n="nav_concept">CONCEPTO</a>
+                <a href="#architecture" class="hover:text-white transition-colors" data-i18n="nav_structure">ESTRUCTURA</a>
+                <a href="#consoles" class="hover:text-white transition-colors" data-i18n="nav_consoles">CONSOLAS</a>
+                <a href="#partners" class="hover:text-white transition-colors" data-i18n="nav_partners">PARTNERS</a>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <!-- Language Selector -->
+                <div class="relative group">
+                    <button class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-emerald-500/50 transition-all text-xs text-white">
+                        <span class="iconify text-emerald-400" data-icon="lucide:globe"></span>
+                        <span id="current-lang-label" class="uppercase tracking-wider font-mono">ES</span>
+                        <span class="iconify opacity-50" data-icon="lucide:chevron-down"></span>
+                    </button>
+                    <!-- Dropdown -->
+                    <div class="absolute right-0 mt-2 w-32 glass-panel border border-white/10 rounded-lg overflow-hidden hidden group-hover:block animate-in fade-in slide-in-from-top-2">
+                        <div onclick="changeLang('es')" class="px-4 py-2 hover:bg-white/10 cursor-pointer text-xs text-neutral-300 hover:text-white flex justify-between items-center transition-colors">
+                            Español <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 opacity-0 active-dot-es"></span>
+                        </div>
+                        <div onclick="changeLang('en')" class="px-4 py-2 hover:bg-white/10 cursor-pointer text-xs text-neutral-300 hover:text-white flex justify-between items-center transition-colors">
+                            English <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 opacity-0 active-dot-en"></span>
+                        </div>
+                        <div onclick="changeLang('it')" class="px-4 py-2 hover:bg-white/10 cursor-pointer text-xs text-neutral-300 hover:text-white flex justify-between items-center transition-colors">
+                            Italiano <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 opacity-0 active-dot-it"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <a href="#contact" class="hidden md:flex items-center gap-2 bg-white text-black px-4 py-1.5 rounded-full text-xs font-semibold hover:bg-emerald-400 transition-colors">
+                    <span data-i18n="nav_demo">SOLICITAR DEMO</span>
+                    <span class="iconify" data-icon="lucide:arrow-right"></span>
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="relative z-10 pt-20">
+
+        <!-- Hero Section -->
+        <section class="min-h-[90vh] flex flex-col items-center justify-center relative overflow-hidden px-6">
+            
+            <!-- 3D Element Container -->
+            <div class="absolute inset-0 flex items-center justify-center opacity-60 -z-10 pointer-events-none">
+                <div class="scene">
+                    <div class="reactor">
+                        <div class="ring"></div>
+                        <div class="ring"></div>
+                        <div class="ring"></div>
+                        <div class="ring"></div>
+                        <div class="core-sphere"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center max-w-4xl mx-auto space-y-8 mt-10">
+                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-emerald-500/30 bg-emerald-900/10 text-emerald-400 text-xs tracking-widest font-mono mb-4 animate-pulse">
+                    <span class="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                    <span data-i18n="status_system">SYSTEM ACTIVE: MONITORING</span>
+                </div>
+                
+                <h1 class="text-5xl md:text-7xl font-semibold tracking-tight text-white leading-[1.1]">
+                    <span data-i18n="hero_title_1">El Sistema Inmunitario</span><br>
+                    <span class="text-gradient-cyber" data-i18n="hero_title_2">Digital Autónomo</span>
+                </h1>
+                
+                <p class="text-lg md:text-xl text-neutral-400 max-w-2xl mx-auto font-light leading-relaxed">
+                    <span class="iconify inline align-text-bottom mr-1" data-icon="lucide:quote"></span>
+                    <span data-i18n="hero_claim" class="italic">Si los atacantes usan inteligencia artificial, la defensa también debe usarla.</span>
+                </p>
+
+                <div class="flex flex-col md:flex-row items-center justify-center gap-4 pt-8">
+                    <button class="group relative px-8 py-3 bg-white text-black rounded-full font-medium text-sm overflow-hidden transition-all hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]">
+                        <div class="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:animate-[shimmer_1s_infinite]"></div>
+                        <span class="relative flex items-center gap-2">
+                            <span data-i18n="cta_start">Iniciar Defensa</span>
+                            <span class="iconify" data-icon="lucide:zap"></span>
+                        </span>
+                    </button>
+                    <button class="px-8 py-3 rounded-full border border-white/10 text-white font-medium text-sm hover:bg-white/5 transition-all flex items-center gap-2">
+                        <span class="iconify" data-icon="lucide:play-circle"></span>
+                        <span data-i18n="cta_video">Ver Funcionamiento</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Scroll Indicator -->
+            <div class="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 opacity-50 animate-bounce">
+                <span class="text-[10px] uppercase tracking-[0.2em] text-neutral-500">Scroll</span>
+                <span class="iconify text-white" data-icon="lucide:chevron-down"></span>
+            </div>
+        </section>
+
+        <!-- Concept Section -->
+        <section id="concept" class="py-24 px-6 relative border-t border-white/5">
+            <div class="max-w-6xl mx-auto grid md:grid-cols-2 gap-16 items-center">
+                <div class="reveal">
+                    <h2 class="text-3xl md:text-4xl font-semibold text-white tracking-tight mb-6" data-i18n="concept_title">
+                        No es un producto.<br>Es un organismo vivo.
+                    </h2>
+                    <div class="space-y-6 text-neutral-400 font-light">
+                        <p data-i18n="concept_p1">
+                            Deco Security rompe con la defensa estática tradicional. Funciona como el sistema inmunitario humano: observa continuamente, detecta anomalías en el tejido digital y neutraliza amenazas antes de que causen daño.
+                        </p>
+                        <p data-i18n="concept_p2">
+                            Mientras la seguridad convencional espera firmas de virus conocidos, <strong class="text-emerald-400 font-normal">Deco Core</strong> predice comportamientos maliciosos basándose en patrones de IA, aprendiendo y evolucionando con cada intento de ataque.
+                        </p>
+                        <ul class="space-y-3 mt-4">
+                            <li class="flex items-center gap-3">
+                                <span class="iconify text-emerald-500" data-icon="lucide:activity"></span>
+                                <span data-i18n="concept_li1">Observación Continua</span>
+                            </li>
+                            <li class="flex items-center gap-3">
+                                <span class="iconify text-emerald-500" data-icon="lucide:brain-circuit"></span>
+                                <span data-i18n="concept_li2">Aprendizaje Automático</span>
+                            </li>
+                            <li class="flex items-center gap-3">
+                                <span class="iconify text-emerald-500" data-icon="lucide:shield-alert"></span>
+                                <span data-i18n="concept_li3">Mitigación Contextual</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="relative h-[400px] reveal delay-100">
+                    <!-- Abstract Visualization of "Attack Blocked" -->
+                    <div class="absolute inset-0 glass-panel rounded-2xl border border-white/10 overflow-hidden flex items-center justify-center">
+                        <div class="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1558494949-efc5270f9c94?q=80&amp;w=2000&amp;auto=format&amp;fit=crop')] bg-cover opacity-20 mix-blend-screen"></div>
+                        <div class="relative z-10 text-center space-y-4">
+                            <div class="w-24 h-24 mx-auto border border-emerald-500/50 rounded-full flex items-center justify-center relative">
+                                <div class="absolute inset-0 rounded-full animate-ping bg-emerald-500/20"></div>
+                                <span class="iconify text-4xl text-emerald-400" data-icon="lucide:lock"></span>
+                            </div>
+                            <div class="bg-black/80 px-4 py-2 rounded font-mono text-xs text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+                                <span data-i18n="sim_threat">THREAT_DETECTED: BLOCKED</span>
+                            </div>
+                        </div>
+                        <!-- Scanning Line -->
+                        <div class="absolute w-full h-[2px] bg-emerald-500/50 shadow-[0_0_10px_#10b981] animate-scan top-0 left-0"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Architecture Section -->
+        <section id="architecture" class="py-24 bg-neutral-950/50 relative">
+            <div class="max-w-7xl mx-auto px-6">
+                <div class="text-center mb-16 reveal">
+                    <span class="text-emerald-500 font-mono text-xs tracking-widest uppercase mb-2 block" data-i18n="arch_subtitle">Arquitectura del Sistema</span>
+                    <h2 class="text-3xl md:text-5xl font-semibold text-white tracking-tight" data-i18n="arch_title">Tres Pilares de Defensa</h2>
+                </div>
+
+                <div class="grid md:grid-cols-3 gap-6">
+                    <!-- Card 1: Agentes -->
+                    <div class="group glass-panel p-8 rounded-xl border border-white/5 hover:border-emerald-500/30 hover:bg-white/5 transition-all duration-500 reveal">
+                        <div class="w-12 h-12 bg-white/5 rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                            <span class="iconify text-2xl text-white" data-icon="lucide:satellite"></span>
+                        </div>
+                        <h3 class="text-xl font-semibold text-white mb-3" data-i18n="arch_c1_title">Agentes Distribuidos</h3>
+                        <p class="text-sm text-neutral-400 leading-relaxed" data-i18n="arch_c1_desc">
+                            Sensores ultraligeros instalados en los sistemas. Sin IA pesada local. Actúan como nervios periféricos enviando telemetría constante al núcleo central.
+                        </p>
+                    </div>
+
+                    <!-- Card 2: Core -->
+                    <div class="group glass-panel p-8 rounded-xl border border-emerald-500/20 bg-emerald-900/5 hover:border-emerald-500/50 hover:shadow-[0_0_30px_rgba(16,185,129,0.1)] transition-all duration-500 relative overflow-hidden reveal delay-100">
+                        <div class="absolute top-0 right-0 p-4 opacity-20">
+                            <span class="iconify text-6xl text-emerald-500 animate-spin-slow" data-icon="lucide:aperture"></span>
+                        </div>
+                        <div class="w-12 h-12 bg-emerald-500/20 rounded-lg flex items-center justify-center mb-6 text-emerald-400">
+                            <span class="iconify text-2xl" data-icon="lucide:cpu"></span>
+                        </div>
+                        <h3 class="text-xl font-semibold text-white mb-3" data-i18n="arch_c2_title">Deco Core Central</h3>
+                        <p class="text-sm text-neutral-400 leading-relaxed" data-i18n="arch_c2_desc">
+                            El cerebro del sistema. IA local que analiza vulnerabilidades, predice vectores de ataque y genera acciones de mitigación en milisegundos.
+                        </p>
+                    </div>
+
+                    <!-- Card 3: Consolas -->
+                    <div class="group glass-panel p-8 rounded-xl border border-white/5 hover:border-blue-500/30 hover:bg-white/5 transition-all duration-500 reveal delay-200">
+                        <div class="w-12 h-12 bg-white/5 rounded-lg flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                            <span class="iconify text-2xl text-white" data-icon="lucide:layout-dashboard"></span>
+                        </div>
+                        <h3 class="text-xl font-semibold text-white mb-3" data-i18n="arch_c3_title">Consolas de Control</h3>
+                        <p class="text-sm text-neutral-400 leading-relaxed" data-i18n="arch_c3_desc">
+                            Interfaces adaptadas para Master, Partners y Clientes. Visibilidad total del ecosistema y gestión simplificada de incidentes complejos.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Grid (The "Hologram" feel) -->
+        <section class="py-24 px-6 relative">
+            <div class="max-w-7xl mx-auto">
+                <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    
+                    <!-- Feature Box -->
+                    <div class="glass-panel p-6 rounded-lg border border-white/5 hover:bg-white/5 transition-colors reveal">
+                        <span class="iconify text-emerald-500 text-2xl mb-4" data-icon="lucide:scan-eye"></span>
+                        <h4 class="text-white font-medium mb-2" data-i18n="feat_1_title">X-Ray de Red</h4>
+                        <p class="text-xs text-neutral-500" data-i18n="feat_1_desc">Visibilidad completa de dispositivos invisibles y flujo de datos.</p>
+                    </div>
+                    
+                    <div class="glass-panel p-6 rounded-lg border border-white/5 hover:bg-white/5 transition-colors reveal delay-75">
+                        <span class="iconify text-blue-400 text-2xl mb-4" data-icon="lucide:sparkles"></span>
+                        <h4 class="text-white font-medium mb-2" data-i18n="feat_2_title">Self-Healing</h4>
+                        <p class="text-xs text-neutral-500" data-i18n="feat_2_desc">El sistema propone correcciones automáticas ante configuraciones de riesgo.</p>
+                    </div>
+
+                    <div class="glass-panel p-6 rounded-lg border border-white/5 hover:bg-white/5 transition-colors reveal delay-100">
+                        <span class="iconify text-purple-400 text-2xl mb-4" data-icon="lucide:share-2"></span>
+                        <h4 class="text-white font-medium mb-2" data-i18n="feat_3_title">Inteligencia Colectiva</h4>
+                        <p class="text-xs text-neutral-500" data-i18n="feat_3_desc">Si un nodo detecta una amenaza, todos los clientes se inmunizan al instante.</p>
+                    </div>
+
+                    <div class="glass-panel p-6 rounded-lg border border-white/5 hover:bg-white/5 transition-colors reveal delay-150">
+                        <span class="iconify text-orange-400 text-2xl mb-4" data-icon="lucide:eye"></span>
+                        <h4 class="text-white font-medium mb-2" data-i18n="feat_4_title">IA Supervisora</h4>
+                        <p class="text-xs text-neutral-500" data-i18n="feat_4_desc">Una segunda capa de IA que audita las decisiones del núcleo para evitar sesgos.</p>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- Interactive Console Preview Section -->
+        <section id="consoles" class="py-24 px-6 relative overflow-hidden">
+             <!-- Decorative glowing blobs -->
+             <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-500/10 rounded-full blur-[100px] -z-10"></div>
+
+            <div class="max-w-7xl mx-auto flex flex-col md:flex-row gap-12 items-center">
+                <div class="md:w-1/2 reveal">
+                    <span class="px-3 py-1 bg-white/10 rounded-full text-[10px] font-mono uppercase tracking-widest text-white mb-6 inline-block border border-white/10">Interface</span>
+                    <h2 class="text-4xl font-semibold text-white tracking-tight mb-6" data-i18n="console_title">Control Total, Complejidad Cero</h2>
+                    <p class="text-neutral-400 mb-8 font-light" data-i18n="console_desc">
+                        La interfaz de Deco Security traduce millones de logs de datos en una visualización clara y accionable. Diseñada para SOCs remotos y directores de seguridad.
+                    </p>
+                    
+                    <div class="space-y-4">
+                        <div class="flex items-start gap-4 p-4 rounded-lg bg-white/5 border border-white/5">
+                            <span class="iconify text-emerald-400 mt-1" data-icon="lucide:monitor-check"></span>
+                            <div>
+                                <h4 class="text-white text-sm font-medium" data-i18n="role_partner">Consola Partner</h4>
+                                <p class="text-xs text-neutral-500 mt-1" data-i18n="role_partner_desc">Gestión multi-tenant para escalar servicios de seguridad sin fricción.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-4 p-4 rounded-lg bg-white/5 border border-white/5">
+                            <span class="iconify text-blue-400 mt-1" data-icon="lucide:user-check"></span>
+                            <div>
+                                <h4 class="text-white text-sm font-medium" data-i18n="role_client">Consola Cliente</h4>
+                                <p class="text-xs text-neutral-500 mt-1" data-i18n="role_client_desc">Visibilidad del ROI de seguridad y estado de salud de la red en tiempo real.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Fake UI Interface -->
+                <div class="md:w-1/2 w-full reveal delay-100">
+                    <div class="relative rounded-xl bg-[#0F0F11] border border-white/10 shadow-2xl overflow-hidden aspect-video group">
+                        <!-- Top Bar -->
+                        <div class="h-8 border-b border-white/10 flex items-center px-4 gap-2 bg-white/5">
+                            <div class="w-2 h-2 rounded-full bg-red-500/50"></div>
+                            <div class="w-2 h-2 rounded-full bg-yellow-500/50"></div>
+                            <div class="w-2 h-2 rounded-full bg-green-500/50"></div>
+                            <div class="ml-auto text-[10px] text-neutral-600 font-mono">DECO_OS_V2.4</div>
+                        </div>
+                        <!-- UI Body -->
+                        <div class="p-6 grid grid-cols-3 gap-4 h-full relative">
+                            <!-- Graph Column -->
+                            <div class="col-span-2 space-y-4">
+                                <div class="h-32 bg-white/5 rounded border border-white/5 p-3 relative overflow-hidden">
+                                    <div class="absolute bottom-0 left-0 w-full h-16 bg-gradient-to-t from-emerald-500/20 to-transparent"></div>
+                                    <!-- Simple SVG Line Chart simulation -->
+                                    <svg viewBox="0 0 100 40" class="w-full h-full stroke-emerald-500 fill-none stroke-2" preserveAspectRatio="none">
+                                        <path d="M0,35 Q10,35 20,30 T40,20 T60,25 T80,10 T100,5" vector-effect="non-scaling-stroke">
+                                            <animate attributeName="d" dur="5s" repeatCount="indefinite" values="M0,35 Q10,35 20,30 T40,20 T60,25 T80,10 T100,5; M0,35 Q10,32 20,25 T40,15 T60,30 T80,5 T100,10; M0,35 Q10,35 20,30 T40,20 T60,25 T80,10 T100,5"></animate>
+                                        </path>
+                                    </svg>
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div class="h-20 bg-white/5 rounded border border-white/5 p-3">
+                                        <div class="text-[10px] text-neutral-500 uppercase">Threats Neutralized</div>
+                                        <div class="text-2xl text-white font-mono mt-1">1,024</div>
+                                    </div>
+                                    <div class="h-20 bg-white/5 rounded border border-white/5 p-3">
+                                        <div class="text-[10px] text-neutral-500 uppercase">System Health</div>
+                                        <div class="text-2xl text-emerald-400 font-mono mt-1">99.9%</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Side Column -->
+                            <div class="col-span-1 space-y-2">
+                                <div class="h-full bg-white/5 rounded border border-white/5 p-3">
+                                    <div class="space-y-2">
+                                        <div class="w-full h-1 bg-white/10 rounded overflow-hidden">
+                                            <div class="h-full bg-emerald-500 w-[70%] animate-pulse"></div>
+                                        </div>
+                                        <div class="w-full h-1 bg-white/10 rounded overflow-hidden">
+                                            <div class="h-full bg-blue-500 w-[40%]"></div>
+                                        </div>
+                                        <div class="w-full h-1 bg-white/10 rounded overflow-hidden">
+                                            <div class="h-full bg-purple-500 w-[90%]"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Radar overlay -->
+                             <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 border border-white/5 rounded-full flex items-center justify-center opacity-30">
+                                <div class="w-full h-1 bg-gradient-to-r from-transparent to-emerald-500 absolute top-1/2 left-0 -translate-y-1/2 animate-spin origin-center"></div>
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Partners & Roadmap -->
+        <section id="partners" class="py-24 bg-neutral-900/30 border-y border-white/5">
+            <div class="max-w-4xl mx-auto text-center px-6 reveal">
+                <h2 class="text-2xl md:text-3xl font-semibold text-white mb-8" data-i18n="partners_title">Ecosistema de Partners</h2>
+                <p class="text-neutral-400 mb-12 max-w-2xl mx-auto" data-i18n="partners_desc">
+                    Deco Security está construido para potenciar a los proveedores de servicios (MSP/MSSP). Conviértete en un SOC de próxima generación sin construir la infraestructura.
+                </p>
+                <div class="flex flex-wrap justify-center gap-8 opacity-50 grayscale hover:grayscale-0 transition-all duration-700">
+                    <!-- Placeholder Logos using Text/Icons for legal safety as per prompt -->
+                    <div class="flex items-center gap-2 text-xl font-bold font-sans tracking-tight text-white"><span class="iconify" data-icon="lucide:hexagon"></span> CYBERCORP</div>
+                    <div class="flex items-center gap-2 text-xl font-bold font-sans tracking-tight text-white"><span class="iconify" data-icon="lucide:triangle"></span> NEXUS DEFENSE</div>
+                    <div class="flex items-center gap-2 text-xl font-bold font-sans tracking-tight text-white"><span class="iconify" data-icon="lucide:circle-dashed"></span> OMNISEC</div>
+                    <div class="flex items-center gap-2 text-xl font-bold font-sans tracking-tight text-white"><span class="iconify" data-icon="lucide:box"></span> STRATOS</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="py-12 border-t border-white/10 bg-[#050505]">
+            <div class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-6">
+                <div class="flex items-center gap-2">
+                    <span class="iconify text-emerald-600" data-icon="lucide:shield"></span>
+                    <span class="font-sans font-bold text-sm tracking-widest text-white">DECO</span>
+                </div>
+                
+                <div class="text-neutral-500 text-xs flex gap-6">
+                    <a href="#" class="hover:text-emerald-400 transition-colors">Privacy Protocol</a>
+                    <a href="#" class="hover:text-emerald-400 transition-colors">System Status</a>
+                    <a href="#" class="hover:text-emerald-400 transition-colors">Contact Core</a>
+                </div>
+
+                <div class="text-[10px] text-neutral-600 font-mono">
+                    © 2024 DECO SECURITY SYSTEMS. ALL RIGHTS RESERVED.
+                </div>
+            </div>
+        </footer>
+
+    </main>
+
+    <!-- Scripts -->
+    <script>
+        // --- TRANSLATION LOGIC ---
+        const translations = {
+            es: {
+                nav_concept: "CONCEPTO",
+                nav_structure: "ESTRUCTURA",
+                nav_consoles: "CONSOLAS",
+                nav_partners: "PARTNERS",
+                nav_demo: "SOLICITAR DEMO",
+                status_system: "SISTEMA ACTIVO: MONITORIZANDO",
+                hero_title_1: "El Sistema Inmunitario",
+                hero_title_2: "Digital Autónomo",
+                hero_claim: "Si los atacantes usan inteligencia artificial, la defensa también debe usarla.",
+                cta_start: "Iniciar Defensa",
+                cta_video: "Ver Funcionamiento",
+                concept_title: "No es un producto.\nEs un organismo vivo.",
+                concept_p1: "Deco Security rompe con la defensa estática tradicional. Funciona como el sistema inmunitario humano: observa continuamente, detecta anomalías en el tejido digital y neutraliza amenazas antes de que causen daño.",
+                concept_p2: "Mientras la seguridad convencional espera firmas de virus conocidos, Deco Core predice comportamientos maliciosos basándose en patrones de IA, aprendiendo y evolucionando con cada intento de ataque.",
+                concept_li1: "Observación Continua",
+                concept_li2: "Aprendizaje Automático",
+                concept_li3: "Mitigación Contextual",
+                sim_threat: "AMENAZA_DETECTADA: BLOQUEADA",
+                arch_subtitle: "ARQUITECTURA DEL SISTEMA",
+                arch_title: "Tres Pilares de Defensa",
+                arch_c1_title: "Agentes Distribuidos",
+                arch_c1_desc: "Sensores ultraligeros instalados en los sistemas. Sin IA pesada local. Actúan como nervios periféricos enviando telemetría constante al núcleo central.",
+                arch_c2_title: "Deco Core Central",
+                arch_c2_desc: "El cerebro del sistema. IA local que analiza vulnerabilidades, predice vectores de ataque y genera acciones de mitigación en milisegundos.",
+                arch_c3_title: "Consolas de Control",
+                arch_c3_desc: "Interfaces adaptadas para Master, Partners y Clientes. Visibilidad total del ecosistema y gestión simplificada de incidentes complejos.",
+                feat_1_title: "X-Ray de Red",
+                feat_1_desc: "Visibilidad completa de dispositivos invisibles y flujo de datos.",
+                feat_2_title: "Self-Healing",
+                feat_2_desc: "El sistema propone correcciones automáticas ante configuraciones de riesgo.",
+                feat_3_title: "Inteligencia Colectiva",
+                feat_3_desc: "Si un nodo detecta una amenaza, todos los clientes se inmunizan al instante.",
+                feat_4_title: "IA Supervisora",
+                feat_4_desc: "Una segunda capa de IA que audita las decisiones del núcleo para evitar sesgos.",
+                console_title: "Control Total, Complejidad Cero",
+                console_desc: "La interfaz de Deco Security traduce millones de logs de datos en una visualización clara y accionable. Diseñada para SOCs remotos y directores de seguridad.",
+                role_partner: "Consola Partner",
+                role_partner_desc: "Gestión multi-tenant para escalar servicios de seguridad sin fricción.",
+                role_client: "Consola Cliente",
+                role_client_desc: "Visibilidad del ROI de seguridad y estado de salud de la red en tiempo real.",
+                partners_title: "Ecosistema de Partners",
+                partners_desc: "Deco Security está construido para potenciar a los proveedores de servicios (MSP/MSSP). Conviértete en un SOC de próxima generación sin construir la infraestructura."
+            },
+            en: {
+                nav_concept: "CONCEPT",
+                nav_structure: "STRUCTURE",
+                nav_consoles: "CONSOLES",
+                nav_partners: "PARTNERS",
+                nav_demo: "REQUEST DEMO",
+                status_system: "SYSTEM ACTIVE: MONITORING",
+                hero_title_1: "The Autonomous Digital",
+                hero_title_2: "Immune System",
+                hero_claim: "If attackers use artificial intelligence, defense must use it too.",
+                cta_start: "Start Defense",
+                cta_video: "How It Works",
+                concept_title: "Not a product.\nA living organism.",
+                concept_p1: "Deco Security breaks with traditional static defense. It functions like the human immune system: continuously observing, detecting anomalies in the digital tissue, and neutralizing threats before they cause damage.",
+                concept_p2: "While conventional security waits for known virus signatures, Deco Core predicts malicious behaviors based on AI patterns, learning and evolving with every attack attempt.",
+                concept_li1: "Continuous Observation",
+                concept_li2: "Machine Learning",
+                concept_li3: "Contextual Mitigation",
+                sim_threat: "THREAT_DETECTED: BLOCKED",
+                arch_subtitle: "SYSTEM ARCHITECTURE",
+                arch_title: "Three Pillars of Defense",
+                arch_c1_title: "Distributed Agents",
+                arch_c1_desc: "Ultralight sensors installed on systems. No heavy local AI. They act as peripheral nerves sending constant telemetry to the central core.",
+                arch_c2_title: "Deco Core Central",
+                arch_c2_desc: "The system brain. Local AI that analyzes vulnerabilities, predicts attack vectors, and generates mitigation actions in milliseconds.",
+                arch_c3_title: "Control Consoles",
+                arch_c3_desc: "Interfaces adapted for Master, Partners, and Clients. Total ecosystem visibility and simplified management of complex incidents.",
+                feat_1_title: "Network X-Ray",
+                feat_1_desc: "Complete visibility of invisible devices and data flow.",
+                feat_2_title: "Self-Healing",
+                feat_2_desc: "The system proposes automatic corrections for risky configurations.",
+                feat_3_title: "Collective Intelligence",
+                feat_3_desc: "If a node detects a threat, all clients are immunized instantly.",
+                feat_4_title: "Supervisory AI",
+                feat_4_desc: "A second AI layer that audits core decisions to avoid bias.",
+                console_title: "Total Control, Zero Complexity",
+                console_desc: "The Deco Security interface translates millions of data logs into clear, actionable visualization. Designed for remote SOCs and security directors.",
+                role_partner: "Partner Console",
+                role_partner_desc: "Multi-tenant management to scale security services without friction.",
+                role_client: "Client Console",
+                role_client_desc: "Real-time visibility of security ROI and network health.",
+                partners_title: "Partner Ecosystem",
+                partners_desc: "Deco Security is built to empower service providers (MSP/MSSP). Become a next-generation SOC without building the infrastructure."
+            },
+            it: {
+                nav_concept: "CONCETTO",
+                nav_structure: "STRUTTURA",
+                nav_consoles: "CONSOLE",
+                nav_partners: "PARTNER",
+                nav_demo: "RICHIEDI DEMO",
+                status_system: "SISTEMA ATTIVO: MONITORAGGIO",
+                hero_title_1: "Il Sistema Immunitario",
+                hero_title_2: "Digitale Autonomo",
+                hero_claim: "Se gli attaccanti usano l'intelligenza artificiale, anche la difesa deve usarla.",
+                cta_start: "Avvia Difesa",
+                cta_video: "Come Funziona",
+                concept_title: "Non un prodotto.\nUn organismo vivente.",
+                concept_p1: "Deco Security rompe con la difesa statica tradizionale. Funziona come il sistema immunitario umano: osserva continuamente, rileva anomalie nel tessuto digitale e neutralizza le minacce prima che causino danni.",
+                concept_p2: "Mentre la sicurezza convenzionale attende firme di virus noti, Deco Core prevede comportamenti dannosi basati su modelli di IA, imparando ed evolvendosi con ogni tentativo di attacco.",
+                concept_li1: "Osservazione Continua",
+                concept_li2: "Apprendimento Automatico",
+                concept_li3: "Mitigazione Contestuale",
+                sim_threat: "MINACCIA_RILEVATA: BLOCCATA",
+                arch_subtitle: "ARCHITETTURA DEL SISTEMA",
+                arch_title: "Tre Pilastri di Difesa",
+                arch_c1_title: "Agenti Distribuiti",
+                arch_c1_desc: "Sensori ultraleggeri installati sui sistemi. Nessuna IA pesante locale. Agiscono come nervi periferici inviando telemetria costante al nucleo centrale.",
+                arch_c2_title: "Deco Core Central",
+                arch_c2_desc: "Il cervello del sistema. IA locale che analizza vulnerabilità, prevede vettori di attacco e genera azioni di mitigazione in millisecondi.",
+                arch_c3_title: "Console di Controllo",
+                arch_c3_desc: "Interfacce adattate per Master, Partner e Clienti. Visibilità totale dell'ecosistema e gestione semplificata di incidenti complessi.",
+                feat_1_title: "Raggi X di Rete",
+                feat_1_desc: "Visibilità completa di dispositivi invisibili e flusso dati.",
+                feat_2_title: "Self-Healing",
+                feat_2_desc: "Il sistema propone correzioni automatiche per configurazioni a rischio.",
+                feat_3_title: "Intelligenza Collettiva",
+                feat_3_desc: "Se un nodo rileva una minaccia, tutti i clienti vengono immunizzati istantaneamente.",
+                feat_4_title: "IA di Supervisione",
+                feat_4_desc: "Un secondo livello di IA che controlla le decisioni del nucleo per evitare bias.",
+                console_title: "Controllo Totale, Zero Complessità",
+                console_desc: "L'interfaccia di Deco Security traduce milioni di log di dati in una visualizzazione chiara e azionabile. Progettata per SOC remoti e direttori della sicurezza.",
+                role_partner: "Console Partner",
+                role_partner_desc: "Gestione multi-tenant per scalare servizi di sicurezza senza attriti.",
+                role_client: "Console Cliente",
+                role_client_desc: "Visibilità del ROI di sicurezza e stato di salute della rete in tempo reale.",
+                partners_title: "Ecosistema Partner",
+                partners_desc: "Deco Security è costruito per potenziare i fornitori di servizi (MSP/MSSP). Diventa un SOC di prossima generazione senza costruire l'infrastruttura."
+            }
+        };
+
+        function changeLang(lang) {
+            // Update Text
+            document.querySelectorAll('[data-i18n]').forEach(element => {
+                const key = element.getAttribute('data-i18n');
+                if (translations[lang][key]) {
+                    element.innerHTML = translations[lang][key]; // innerHTML to allow <br> tags
+                }
+            });
+
+            // Update Label
+            document.getElementById('current-lang-label').innerText = lang.toUpperCase();
+
+            // Update active dot visual
+            document.querySelectorAll('[class*="active-dot-"]').forEach(el => el.classList.add('opacity-0'));
+            document.querySelector(`.active-dot-${lang}`).classList.remove('opacity-0');
+        }
+
+        // --- PARTICLE BACKGROUND (CANVAS) ---
+        const canvas = document.getElementById('neural-net');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height;
+        let particles = [];
+        
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        
+        window.addEventListener('resize', resize);
+        resize();
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.vx = (Math.random() - 0.5) * 0.5;
+                this.vy = (Math.random() - 0.5) * 0.5;
+                this.size = Math.random() * 2;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                if (this.x < 0 || this.x > width) this.vx *= -1;
+                if (this.y < 0 || this.y > height) this.vy *= -1;
+            }
+            draw() {
+                ctx.fillStyle = 'rgba(16, 185, 129, 0.5)'; // Emerald
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function initParticles() {
+            particles = [];
+            const count = window.innerWidth < 768 ? 40 : 80;
+            for (let i = 0; i < count; i++) {
+                particles.push(new Particle());
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, width, height);
+            
+            // Draw connections
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < 150) {
+                        ctx.strokeStyle = `rgba(16, 185, 129, ${0.15 - distance/1000})`;
+                        ctx.lineWidth = 0.5;
+                        ctx.beginPath();
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+        initParticles();
+        animate();
+
+        // --- SCROLL REVEAL OBSERVER ---
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: "0px"
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('active');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+    </script>
+
+</body></html>

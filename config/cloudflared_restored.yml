@@ -1,0 +1,14 @@
+# Configuración Restaurada para Deco-Gravity
+# Copiar contenido relevante a /etc/cloudflared/config.yml o configurar en Dashboard
+
+ingress:
+  # Consola Oficial (Next.js Dashboard)
+  - hostname: consola.deco-security.com
+    service: http://127.0.0.1:3000
+  
+  # API Oficial (Orchestrator)
+  - hostname: api.deco-security.com
+    service: http://127.0.0.1:18001
+
+  # Fallback
+  - service: http_status:404

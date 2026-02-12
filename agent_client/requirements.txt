@@ -1,0 +1,4 @@
+# Dependencias de tiempo de ejecución del agente Deco-Security
+# (instaladas también en el build para PyInstaller)
+requests==2.32.3
+psutil==6.0.0

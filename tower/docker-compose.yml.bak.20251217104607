@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  # Backend services commented out to use V3 infrastructure (Docker stack)
+  # deco-sec-db: ...
+  # deco-sec-redis: ...
+  # deco-sec-orchestrator: ...
+  # deco-sec-worker: ...
+
+  deco-sec-dashboard:
+    build:
+      context: ../dashboard_admin
+      args:
+        NEXT_PUBLIC_ORCHESTRATOR_URL: http://localhost:18001
+    container_name: deco-sec-dashboard
+    restart: unless-stopped
+    ports:
+      - "3006:3000"
+    environment:
+      - NEXT_PUBLIC_ORCHESTRATOR_URL=http://localhost:18001
+      - ORCHESTRATOR_INTERNAL_URL=http://orchestrator_api:8000
+    networks:
+      - deco_core_vlan
+
+  deco-sec-dashboard-partner:
+    build:
+      context: ../dashboard_partners
+      args:
+        NEXT_PUBLIC_ORCHESTRATOR_URL: http://localhost:18001
+    container_name: deco-sec-dashboard-partner
+    restart: unless-stopped
+    ports:
+      - "3007:3000"
+    environment:
+      - NEXT_PUBLIC_ORCHESTRATOR_URL=http://localhost:18001
+      - ORCHESTRATOR_INTERNAL_URL=http://orchestrator_api:8000
+    networks:
+      - deco_core_vlan
+
+  deco-sec-dashboard-client:
+    build:
+      context: ../dashboard_security
+      args:
+        NEXT_PUBLIC_ORCHESTRATOR_URL: http://localhost:18001
+    container_name: deco-sec-dashboard-client
+    restart: unless-stopped
+    ports:
+      - "3005:3000"
+    environment:
+      - NEXT_PUBLIC_ORCHESTRATOR_URL=http://localhost:18001
+      - ORCHESTRATOR_INTERNAL_URL=http://orchestrator_api:8000
+    networks:
+      - deco_core_vlan
+
+networks:
+  deco_core_vlan:
+    external: true

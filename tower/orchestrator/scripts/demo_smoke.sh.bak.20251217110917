@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="$ROOT/.env"
+
+# Load env from orchestrator .env
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC2046
+  export $(grep -v "^#" "$ENV_FILE" | xargs)
+fi
+
+ORCH_URL="${ORCHESTRATOR_URL:-${ORCHESTRATOR_BASE:-http://127.0.0.1:8001}}"
+ADMIN_KEY="${DECO_ADMIN_MASTER_KEY:-admin123}"
+
+if [[ -d "$ROOT/.venv" ]]; then
+  # shellcheck disable=SC1090
+  source "$ROOT/.venv/bin/activate"
+fi
+
+failures=0
+step() {
+  local label="$1"; shift
+  echo "-- ${label}" >&2
+  if "$@"; then
+    echo "[OK] ${label}" >&2
+  else
+    echo "[FAIL] ${label}" >&2
+    failures=$((failures+1))
+  fi
+  echo
+}
+
+step "Health" bash -lc "curl -sf ${ORCH_URL}/health"
+
+step "OpenAPI title" bash -lc "curl -sf ${ORCH_URL}/openapi.json | jq -r '.info.title'"
+
+step "DB table count" bash -lc "docker exec deco-sec-db psql -U postgres -d deco_security -t -c \"select count(*) from information_schema.tables where table_schema='public';\""
+
+# Create or fetch demo client
+CLIENT_OUTPUT="$(bash -lc "cd ${ROOT} && python scripts/create_demo_client.py")" || true
+CLIENT_KEY="$(printf '%s' "$CLIENT_OUTPUT" | awk -F= '/X-Client-API-Key/{print $2}')"
+CLIENT_ID="$(printf '%s' "$CLIENT_OUTPUT" | awk -F= '/id=/{print $2}')"
+if [[ -z "$CLIENT_KEY" ]]; then
+  echo "[WARN] Could not extract client key from create_demo_client output" >&2
+  failures=$((failures+1))
+fi
+printf '%s
+' "$CLIENT_OUTPUT"
+
+# Register smoke agent
+SMOKE_HOST="smoke-agent-$RANDOM"
+step "Register agent ${SMOKE_HOST}" bash -lc "curl -sf -X POST ${ORCH_URL}/api/agents/register -H 'Content-Type: application/json' -H 'X-Client-API-Key: ${CLIENT_KEY}' -d '{"hostname":"${SMOKE_HOST}","version":"smoke","os":"linux"}'"
+
+# List agents from admin
+step "List agents (admin)" bash -lc "curl -sf -H 'X-Admin-Master-Key: ${ADMIN_KEY}' ${ORCH_URL}/api/admin/agents"
+
+if [[ $failures -gt 0 ]]; then
+  echo "Smoke tests completed with $failures failure(s)." >&2
+  exit 1
+fi
+
+echo "Smoke tests OK"

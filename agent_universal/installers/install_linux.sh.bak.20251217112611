@@ -1,0 +1,54 @@
+#!/bin/bash
+set -e
+
+# Deco-Security Agent Installer for Linux
+# Installs agent as a systemd service
+
+INSTALL_DIR="/opt/deco/agent_universal"
+CONFIG_DIR="/etc/deco-security-agent"
+SERVICE_FILE="/etc/systemd/system/deco-security-agent.service"
+
+echo "Installing Deco-Security Agent..."
+
+# 1. Prerequisites
+if ! command -v python3 &> /dev/null; then
+    echo "Python3 could not be found. Please install python3."
+    exit 1
+fi
+
+# 2. Create Directories
+mkdir -p "$CONFIG_DIR"
+# Assuming we are running from the unpacked source or git repo
+# We copy the src to INSTALL_DIR if not already there (for production installer)
+# For this dev environment, we assume files are already in /opt/deco/agent_universal/src
+
+# 3. Install Dependencies (if any)
+# pip3 install -r requirements.txt (if we had one)
+
+# 4. Create Service File
+echo "Creating systemd service..."
+cat <<EOF > "$SERVICE_FILE"
+[Unit]
+Description=Deco-Security Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$INSTALL_DIR/src
+ExecStart=/usr/bin/python3 $INSTALL_DIR/src/main.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 5. Reload and Enable
+systemctl daemon-reload
+systemctl enable deco-security-agent
+
+echo "Installation Complete."
+echo "To start the agent, run: systemctl start deco-security-agent"
+echo "Note: Ensure you have configured your API Key in $CONFIG_DIR/config.json or run the agent manually once to set it."

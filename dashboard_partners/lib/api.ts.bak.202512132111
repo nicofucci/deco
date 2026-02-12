@@ -1,0 +1,356 @@
+const INTERNAL_API_URL = process.env.ORCHESTRATOR_INTERNAL_URL || 'http://orchestrator_api:8000';
+
+// PROXY FIX: Browser always calls /api/proxy (Same Origin) to avoid CORS and secure headers.
+// React Server Components (RSC) still use internal URL.
+const BROWSER_API_URL = '/api/proxy';
+
+export const API_URL = (typeof window === 'undefined') ? INTERNAL_API_URL : BROWSER_API_URL;
+
+// Auth
+export async function validatePartnerKey(apiKey: string) {
+    const res = await fetch(`${API_URL}/api/partners/validate-key`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: apiKey }),
+    });
+    if (!res.ok) throw new Error("API Key inválida o error de conexión");
+    return res.json();
+}
+
+// Helper to get headers
+const getHeaders = (token: string) => ({
+    "Content-Type": "application/json",
+    "X-Partner-API-Key": token
+});
+
+// Self
+export async function getMe(token: string) {
+    const res = await fetch(`${API_URL}/api/partners/me`, {
+        headers: { "X-Partner-API-Key": token },
+    });
+    if (!res.ok) throw new Error("Error al obtener perfil");
+    return res.json();
+}
+
+export async function getEarnings(token: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/earnings`, {
+        headers: { "X-Partner-API-Key": token },
+    });
+    // Earnings endpoint is safe to return defaults if fails, but let's throw to handle in UI
+    if (!res.ok) throw new Error("Error al obtener estadísticas");
+    return res.json();
+}
+
+// WTI
+export async function getGlobalThreats(token: string) {
+    const res = await fetch(`${API_URL}/api/threat-intel/global?limit=50`, {
+        headers: getHeaders(token),
+    });
+    if (!res.ok) throw new Error("Failed to fetch global threats");
+    return res.json();
+}
+
+export async function getClientThreatMatches(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/threat-intel/clients/${clientId}/matches`, {
+        headers: getHeaders(token),
+    });
+    if (!res.ok) throw new Error("Failed to fetch client threat matches");
+    return res.json();
+}
+
+export async function getClientThreatSummary(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/threat-intel/clients/${clientId}/summary`, {
+        headers: getHeaders(token),
+    });
+    if (!res.ok) throw new Error("Failed to fetch threat summary");
+    return res.json();
+}
+
+// Clients
+export async function getMyClients(token: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/clients`, {
+        headers: { "X-Partner-API-Key": token },
+    });
+    if (!res.ok) throw new Error("Error al obtener clientes");
+    return res.json();
+}
+
+export async function createClient(token: string, name: string, email: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/clients`, {
+        method: "POST",
+        headers: getHeaders(token),
+        body: JSON.stringify({ name, contact_email: email }),
+    });
+    if (!res.ok) throw new Error("Error al crear cliente");
+    return res.json();
+}
+
+export async function deleteClient(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/clients/${clientId}`, {
+        method: "DELETE",
+        headers: { "X-Partner-API-Key": token },
+    });
+    if (!res.ok) throw new Error("Error al eliminar cliente");
+    return res.json();
+}
+
+export async function getClientApiKey(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/clients/${clientId}/api-key`, {
+        headers: { "X-Partner-API-Key": token },
+    });
+    if (!res.ok) throw new Error("Error al obtener API Key");
+    return res.json();
+}
+
+export async function getClientSummary(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/clients/${clientId}/summary`, {
+        headers: { "X-Partner-API-Key": token },
+    });
+    if (!res.ok) throw new Error("Error al obtener resumen de cliente");
+    return res.json();
+}
+
+// API Keys
+export async function getMyApiKeys(token: string) {
+    const res = await fetch(`${API_URL}/api/partners/api-keys`, {
+        headers: { "X-Partner-API-Key": token },
+    });
+    if (!res.ok) throw new Error("Error al obtener API Keys");
+    return res.json();
+}
+
+export async function createApiKey(token: string, name: string) {
+    const res = await fetch(`${API_URL}/api/partners/api-keys`, {
+        method: "POST",
+        headers: getHeaders(token),
+        body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error("Error al crear API Key");
+    return res.json();
+}
+
+export async function revokeApiKey(token: string, keyId: string) {
+    const res = await fetch(`${API_URL}/api/partners/api-keys/${keyId}`, {
+        method: "DELETE",
+        headers: { "X-Partner-API-Key": token },
+    });
+    if (!res.ok) throw new Error("Error al revocar API Key");
+    return res.json();
+}
+
+// Billing & Packages
+export async function getBillingSummary(token: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/billing`, {
+        headers: { "X-Partner-API-Key": token },
+    });
+    if (!res.ok) throw new Error("Error al obtener facturación");
+    return res.json();
+}
+
+export async function buyPackage(token: string, type: "clients" | "agents", quantity: number) {
+    const res = await fetch(`${API_URL}/api/partners/me/packages`, {
+        method: "POST",
+        headers: getHeaders(token),
+        body: JSON.stringify({ type, quantity }),
+    });
+    if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || "Error al comprar paquete");
+    }
+    return res.json();
+}
+
+// SOC Remote Actions
+export async function runRemoteScan(token: string, clientId: string, type: string, target?: string, agentId?: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/clients/${clientId}/scan`, {
+        method: "POST",
+        headers: getHeaders(token),
+        body: JSON.stringify({ type, target, agent_id: agentId }),
+    });
+    if (!res.ok) throw new Error("Error al lanzar escaneo");
+    return res.json();
+}
+
+export async function runRemoteAction(token: string, clientId: string, agentId: string, action: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/clients/${clientId}/agents/${agentId}/action`, {
+        method: "POST",
+        headers: getHeaders(token),
+        body: JSON.stringify({ action }),
+    });
+    if (!res.ok) throw new Error("Error al ejecutar acción remota");
+    return res.json();
+}
+
+export async function getClientJobs(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/clients/${clientId}/jobs`, {
+        headers: { "X-Partner-API-Key": token },
+    });
+    if (!res.ok) throw new Error("Error al obtener trabajos");
+    return res.json();
+}
+
+export async function getClientReports(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/clients/${clientId}/reports`, {
+        headers: { "X-Partner-API-Key": token },
+    });
+    if (!res.ok) throw new Error("Error al obtener reportes");
+    return res.json();
+}
+
+export async function getClientNetworkAssets(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/network/clients/${clientId}/network-assets`, {
+        headers: { "X-Partner-API-Key": token }
+    });
+    if (!res.ok) throw new Error("Failed to fetch network assets");
+    return res.json();
+}
+
+export async function generateClientReport(token: string, clientId: string, type: string) {
+    const res = await fetch(`${API_URL}/api/partners/me/clients/${clientId}/reports`, {
+        method: "POST",
+        headers: getHeaders(token),
+        body: JSON.stringify({ type }),
+    });
+    if (!res.ok) throw new Error("Error al generar reporte");
+    return res.json();
+}
+
+export async function getClientVulnerabilities(token: string, clientId: string, severity?: string) {
+    let url = `${API_URL}/api/network/clients/${clientId}/vulnerabilities`;
+    if (severity) url += `?severity=${severity}`;
+
+    const res = await fetch(url, {
+        headers: { "X-Partner-API-Key": token }
+    });
+    if (!res.ok) throw new Error("Failed to fetch vulnerabilities");
+    return res.json();
+}
+
+export async function getSpecializedFindings(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/network/clients/${clientId}/specialized-findings`, {
+        headers: { "X-Partner-API-Key": token }
+    });
+    if (!res.ok) throw new Error("Failed to fetch specialized findings");
+    return res.json();
+}
+
+export async function triggerSpecializedScan(token: string, clientId: string, jobType: string, targetIp: string) {
+    // Map jobType to endpoint suffix if needed, or pass exact endpoint slug
+    // jobTypes: iot-deep-scan, smb-rdp-audit, critical-fingerprint
+    const res = await fetch(`${API_URL}/api/network/clients/${clientId}/jobs/${jobType}`, {
+        method: "POST",
+        headers: getHeaders(token),
+        body: JSON.stringify({ target_ip: targetIp })
+    });
+    if (!res.ok) throw new Error(`Failed to trigger ${jobType}`);
+    return res.json();
+}
+
+export async function getNetworkAssetsSummary(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/network/clients/${clientId}/network-assets/summary`, {
+        headers: { "X-Partner-API-Key": token }
+    });
+    if (!res.ok) throw new Error("Failed to fetch assets summary");
+    return res.json();
+}
+
+export async function getAssetHistory(token: string, clientId: string, assetId: string) {
+    const res = await fetch(`${API_URL}/api/network/clients/${clientId}/network-assets/${assetId}/history`, {
+        headers: { "X-Partner-API-Key": token }
+    });
+    if (!res.ok) throw new Error("Failed to fetch asset history");
+    return res.json();
+}
+
+export async function getPredictiveReport(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/predictive/clients/${clientId}/predictive`, {
+        headers: { "X-Partner-API-Key": token }
+    });
+    if (!res.ok) return { score: 100, signals: [] };
+    return res.json();
+}
+export async function triggerPredictiveAnalysis(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/predictive/clients/${clientId}/predictive/analyze`, {
+        method: "POST",
+        headers: getHeaders(token)
+    });
+    if (!res.ok) throw new Error("Analysis trigger failed");
+    return res.json();
+}
+
+
+
+
+// Autofix IA Engine
+export async function getAutofixPlaybooks(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/master/clients/${clientId}/autofix/playbooks`, {
+        headers: { "X-Partner-API-Key": token }
+    });
+    if (!res.ok) throw new Error("Failed to fetch playbooks");
+    return res.json();
+}
+
+export async function generateAutofixPlaybooks(token: string, clientId: string) {
+    const res = await fetch(`${API_URL}/api/master/clients/${clientId}/autofix/generate`, {
+        method: "POST",
+        headers: getHeaders(token)
+    });
+    if (!res.ok) throw new Error("Failed to generate playbooks");
+    return res.json();
+}
+
+export async function approvePlaybook(token: string, playbookId: string) {
+    const res = await fetch(`${API_URL}/api/master/autofix/playbooks/${playbookId}/approve`, {
+        method: "POST",
+        headers: getHeaders(token)
+    });
+    if (!res.ok) throw new Error("Failed to approve playbook");
+    return res.json();
+}
+
+export async function rejectPlaybook(token: string, playbookId: string) {
+    const res = await fetch(`${API_URL}/api/master/autofix/playbooks/${playbookId}/reject`, {
+        method: "POST",
+        headers: getHeaders(token)
+    });
+    if (!res.ok) throw new Error("Failed to reject playbook");
+    return res.json();
+}
+
+export async function executePlaybook(token: string, playbookId: string) {
+    const res = await fetch(`${API_URL}/api/master/autofix/playbooks/${playbookId}/execute`, {
+        method: "POST",
+        headers: getHeaders(token)
+    });
+    if (!res.ok) throw new Error("Failed to execute playbook");
+    return res.json();
+}
+
+export async function downloadFile(token: string, urlInput: string): Promise<{ blob: Blob, filename: string }> {
+    // Force Proxy: Strip domain if present to route through /api/proxy (which is now API_URL in browser)
+    let relativePath = urlInput;
+    if (urlInput.startsWith("http")) {
+        // Remove https://domain.com/ keeping /api/...
+        // Standard backend returns https://api.deco-security.com/api/...
+        const urlObj = new URL(urlInput);
+        relativePath = urlObj.pathname + urlObj.search;
+    }
+
+    // Ensure API_URL (which is /api/proxy in browser) is prepended
+    const finalUrl = `${API_URL}${relativePath.startsWith('/') ? '' : '/'}${relativePath}`;
+
+    const res = await fetch(finalUrl, {
+        headers: { "X-Partner-API-Key": token }
+    });
+    if (!res.ok) throw new Error("Error en descarga de archivo");
+
+    const disposition = res.headers.get('content-disposition');
+    let filename = 'download.pdf';
+    if (disposition && disposition.indexOf('attachment') !== -1) {
+        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+        if (matches != null && matches[1]) filename = matches[1].replace(/['"]/g, '');
+    }
+
+    const blob = await res.blob();
+    return { blob, filename };
+}

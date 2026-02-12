@@ -1,0 +1,159 @@
+import logging
+from datetime import datetime, timedelta, timezone
+from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy.orm import Session
+
+from app.db.session import SessionLocal
+from sqlalchemy import or_, desc
+from app.models.domain import Agent, ScanJob
+
+logger = logging.getLogger("DecoOrchestrator.Scheduler")
+
+def check_agent_health():
+    """
+    Revisa agentes que no han enviado heartbeat en los últimos 5 minutos
+    y los marca como 'offline'.
+    """
+    db: Session = SessionLocal()
+    try:
+        # Ajustamos tolerancia a 2 minutos para reflejar estado real más rápido
+        threshold = datetime.now(timezone.utc) - timedelta(minutes=2)
+        
+        # Find agents that are 'online' but haven't been seen recently
+        stale_agents = db.query(Agent).filter(
+            Agent.status == "online",
+            Agent.last_seen_at < threshold
+        ).all()
+        
+        if stale_agents:
+            logger.info(f"[HEALTH_CHECK] Marcando {len(stale_agents)} agentes como OFFLINE (Inactivos > 2m).")
+            for agent in stale_agents:
+                agent.status = "offline"
+                logger.info(f" -> Agente {agent.hostname} (ID: {agent.id}) marcado como offline. Última vez visto: {agent.last_seen_at}")
+            
+            db.commit()
+    except Exception as e:
+        logger.error(f"Error en check_agent_health: {e}")
+    finally:
+        db.close()
+
+def check_zombie_jobs():
+    """
+    Cleaner de Jobs Zombie:
+    - Jobs en 'running' que llevan > 30 mins sin terminar.
+    - Jobs en 'running' con started_at NULL (anomalía).
+    """
+    db: Session = SessionLocal()
+    try:
+        # Threshold: 30 minutes ago
+        timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
+        
+        # Query 1: Running jobs started long ago
+        zombies_time = db.query(ScanJob).filter(
+            ScanJob.status == "running",
+            ScanJob.started_at < timeout_threshold
+        ).all()
+
+        # Query 2: Running jobs with NO started_at (Ghost Jobs)
+        # Note: We give a grace period of 5 mins for 'started_at' to be filled by ACK
+        # to avoid race conditions with just-created jobs.
+        grace_period = datetime.now(timezone.utc) - timedelta(minutes=5)
+        zombies_ghost = db.query(ScanJob).filter(
+            ScanJob.status == "running",
+            ScanJob.started_at.is_(None),
+            ScanJob.created_at < grace_period
+        ).all()
+        
+        all_zombies = list(set(zombies_time + zombies_ghost))
+        
+        if all_zombies:
+            logger.warning(f"[ZOMBIE_CLEANER] Detectados {len(all_zombies)} jobs zombie.")
+            for job in all_zombies:
+                logger.warning(f" -> Matando Job {job.id} (Agent: {job.agent_id}). Type: {job.type}. Created: {job.created_at}")
+                job.status = "error"
+                job.finished_at = datetime.now(timezone.utc)
+                if not job.params:
+                    job.params = {}
+                
+                reason = "timeout_zombie" if job.started_at else "ghost_no_ack"
+                msg = "Tiempo de espera agotado (30m+)" if reason == "timeout_zombie" else "Agente no confirmó inicio (No ACK)"
+                
+                # Update params with error info
+                # We need to cast params to dict if it's not
+                if job.params is None: job.params = {}
+                # Create a mutable copy if needed or just assign
+                new_params = dict(job.params)
+                new_params["error"] = msg
+                new_params["error_reason"] = reason
+                job.params = new_params
+                
+            db.commit()
+            logger.info(f"[ZOMBIE_CLEANER] {len(all_zombies)} jobs marcados como ERROR.")
+            
+    except Exception as e:
+        logger.error(f"Error en check_zombie_jobs: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
+from app.services.wti_engine import WTIEngine
+from app.services.threat_correlation import ThreatCorrelationEngine
+
+def run_wti_cycle():
+    """
+    Periodic Job: Fetch Threat Intel & Correlate
+    Runs every 1 hour (or adjusted as needed).
+    """
+    db: Session = SessionLocal()
+    try:
+        logger.info("[WTI_CYCLE] Starting Global Threat Intel Cycle...")
+        
+        # 1. Fetch
+        engine = WTIEngine(db)
+        new_threats = engine.fetch_threat_intel()
+        
+        # 2. Correlate
+        if new_threats is not None: # Can return int or count
+            # Ideally fetch returns list or count. In current impl it returns count.
+            pass
+            
+        correlation = ThreatCorrelationEngine(db)
+        matches = correlation.correlate_all()
+        
+        logger.info(f"[WTI_CYCLE] Finished. Matches generated: {matches}")
+        
+    except Exception as e:
+        logger.error(f"[WTI_CYCLE] Error: {e}", exc_info=True)
+    finally:
+        db.close()
+
+def start_scheduler():
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(check_agent_health, 'interval', minutes=1)
+    scheduler.add_job(check_zombie_jobs, 'interval', minutes=5)
+    
+    
+    # Run WTI every 60 minutes
+    scheduler.add_job(run_wti_cycle, 'interval', minutes=60)
+    
+    # Run once on startup (optional, with slight delay to let app boot)
+    scheduler.add_job(run_wti_cycle, 'date', run_date=datetime.now(timezone.utc) + timedelta(seconds=30))
+    
+    # Fleet Guardian: Check for offline/alert conditions every 10 min
+    from app.services.telemetry import AgentTelemetryProcessor
+    from app.db.session import SessionLocal
+    def run_fleet_check():
+        db = SessionLocal()
+        try:
+             processor = AgentTelemetryProcessor(db)
+             processor.check_fleet_health()
+        except Exception as e:
+             logger.error(f"Error in run_fleet_check: {e}")
+        finally:
+             db.close()
+
+    scheduler.add_job(run_fleet_check, 'interval', minutes=10)
+
+    scheduler.start()
+    logger.info("Scheduler iniciado: HealthCheck(1m) + ZombieCleaner(5m) + WTIEngine(60m) + FleetGuardian(10m).")
+

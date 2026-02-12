@@ -1,0 +1,371 @@
+from pydantic import BaseModel, EmailStr, Field
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+
+# =========================
+# CLIENT CONTRACTS
+# =========================
+
+class ClientBase(BaseModel):
+    name: str
+    contact_email: Optional[EmailStr] = None
+
+
+class ClientCreate(ClientBase):
+    """
+    Esquema para crear un nuevo cliente.
+    """
+    pass
+
+
+class ClientRead(ClientBase):
+    """
+    Esquema para devolver info de un cliente.
+    """
+    id: str
+    status: str
+    api_key: Optional[str] = None # Deprecated
+    agent_api_key: Optional[str] = None
+    client_panel_api_key: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True  # Pydantic v2: permite crear desde ORM
+
+
+# =========================
+# AGENT CONTRACTS
+# =========================
+
+class AgentRegisterRequest(BaseModel):
+    hostname: str
+    version: str
+    os_info: Optional[str] = None
+    os: Optional[str] = None
+    arch: Optional[str] = None
+    # Token de registro opcional si en el futuro quieres una pre-autorización
+    registration_token: Optional[str] = None 
+
+
+class AgentRegisterResponse(BaseModel):
+    agent_id: str
+    api_key: str  # Por ahora utilizaremos el api_key del cliente asociado
+    status: str
+
+
+class HeartbeatRequest(BaseModel):
+    agent_id: str
+    status: str  # online, busy, error
+    load_avg: Optional[float] = None
+    memory_usage: Optional[float] = None
+    version: Optional[str] = None
+    local_ip: Optional[str] = None
+    ip: Optional[str] = None
+    primary_cidr: Optional[str] = None
+    interfaces: Optional[List[Dict[str, Any]]] = None
+
+
+class HeartbeatResponse(BaseModel):
+    status: str
+    pending_jobs: List[str]  # Lista de IDs de jobs pendientes
+
+
+class AgentJobResult(BaseModel):
+    job_id: str
+    agent_id: str
+    status: str  # completed / failed
+    data: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+# =========================
+# SCAN JOB CONTRACTS
+# (los usaremos en fases siguientes)
+# =========================
+
+class ScanJobCreate(BaseModel):
+    client_id: str
+    agent_id: Optional[str] = None
+    type: str  # discovery, ports, full (alias de ports)
+    target: str  # IP o rango
+
+
+class ScanJobResponse(BaseModel):
+    id: str
+    type: str
+    target: str
+    status: str
+    agent_id: Optional[str] = None
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# =========================
+# RESULT UPLOAD CONTRACTS
+# (futuras fases)
+# =========================
+
+class ScanResultUpload(BaseModel):
+    scan_job_id: str
+    agent_id: str
+    raw_data: Dict[str, Any]  # JSON crudo del escáner (Nmap, etc.)
+    summary: Optional[Dict[str, Any]] = None
+
+
+class ScanResultResponse(BaseModel):
+    status: str
+    received_at: datetime
+
+
+# =========================
+# CLIENT PORTAL RESPONSES
+# =========================
+
+class ClientAssetResponse(BaseModel):
+    id: str
+    ip: str
+    hostname: Optional[str] = None
+    client_name: Optional[str] = None
+    open_ports: List[int] = Field(default_factory=list)
+    last_scan_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ClientFindingResponse(BaseModel):
+    id: str
+    asset_id: str
+    asset_ip: str
+    client_name: Optional[str] = None
+    severity: str
+    title: str
+    description: Optional[str] = None
+    recommendation: Optional[str] = None
+    detected_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ClientJobResponse(BaseModel):
+    id: str
+    type: str
+    target: str
+    status: str
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ClientNetworkAssetResponse(BaseModel):
+    id: str
+    ip: str
+    mac: Optional[str] = None
+    mac_vendor: Optional[str] = None
+    hostname: Optional[str] = None
+    device_type: Optional[str] = "unknown"
+    os_guess: Optional[str] = None
+    open_ports: List[int] = Field(default_factory=list)
+    
+    # V2 Fields
+    status: Optional[str] = "new"
+    times_seen: Optional[int] = 1
+    
+    first_seen: datetime
+    last_seen: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ReportSummaryResponse(BaseModel):
+    report_id: str
+    format: str
+    content: str
+    generated_at: datetime
+
+
+class MasterJobResponse(BaseModel):
+    id: str
+    client_name: str
+    agent_hostname: Optional[str] = None
+    type: str
+    target: str
+    status: str
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AIRecommendationResponse(BaseModel):
+    cliente: str
+    tipo: str
+    recomendacion: str
+    probabilidad: float
+    fecha: str
+
+
+class ReportResponse(BaseModel):
+    id: str
+    client_id: Optional[str] = None
+    client_name: str
+    type: str
+    generated_at: datetime
+    download_url: str
+    title: Optional[str] = None
+    status: Optional[str] = None
+    summary: Optional[str] = None
+
+
+# =========================
+# PARTNER CONTRACTS
+# =========================
+
+class PartnerBase(BaseModel):
+    name: str
+    email: EmailStr
+    account_mode: Optional[str] = "demo"  # demo o full
+
+class PartnerCreate(PartnerBase):
+    password: Optional[str] = None
+    type: Optional[str] = None  # compat: DEMO/FULL legado
+
+class PartnerRead(PartnerBase):
+    id: str
+    status: str
+    type: Optional[str] = None  # legado
+    client_limit: int
+    agent_limit: int
+    client_packages: int
+    agent_packages: int
+    demo_expires_at: Optional[datetime]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class PartnerCreateResponse(PartnerRead):
+    generated_password: Optional[str] = None
+    api_key: Optional[str] = None
+
+class PartnerLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class PartnerLoginResponse(BaseModel):
+    access_token: str
+    token_type: str
+    partner_id: str
+    name: str
+    email: str
+    account_mode: str
+
+class PartnerUpdateMode(BaseModel):
+    account_mode: str # demo, full
+
+class PartnerAPIKeyCreate(BaseModel):
+    name: str
+
+class PartnerAPIKeyRead(BaseModel):
+    id: str
+    name: str
+    api_key: str
+    active: bool
+    created_at: datetime
+    last_used_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+class PartnerEarningsSummary(BaseModel):
+    total_clients_active: int
+    total_earnings_lifetime: float
+    total_earnings_last_month: float
+    earnings_history: List[Dict[str, Any]]
+    message: Optional[str] = None
+    # Usage Stats (Source of Truth)
+    agents_limit: int = 0
+    agents_assigned: int = 0
+    agents_available: int = 0
+
+class PartnerBillingSummary(BaseModel):
+    base_plan: float
+    paquetes_clientes: int
+    paquetes_agentes: int
+    total_clientes_permitidos: int
+    total_agentes_permitidos: int
+    facturacion_total: float
+
+class PackagePurchaseRequest(BaseModel):
+    type: str # clients, agents
+    quantity: int # must be 1 (representing 1 package of 10)
+
+class PartnerScanRequest(BaseModel):
+    type: str # quick, full, vuln
+    target: Optional[str] = None # Si es None, usa el rango del cliente o auto-discovery
+    agent_id: Optional[str] = None # Opcional, si se quiere forzar un agente
+
+class PartnerAgentActionRequest(BaseModel):
+    action: str # restart, update
+
+
+# =========================
+# VULNERABILITY ENRICHMENT CONTRACTS
+# =========================
+
+class VulnerabilityEntry(BaseModel):
+    id: str
+    cpe: Optional[str] = None
+    cve: str
+    cvss_score: float
+    severity: str
+    exploit_available: bool
+    exploit_sources: List[str] = Field(default_factory=list)
+    description_short: Optional[str] = None
+    first_detected: datetime
+    last_detected: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EnrichedAssetVulnerabilities(BaseModel):
+    asset_id: str
+    ip: str
+    hostname: Optional[str] = None
+    vulnerabilities: List[VulnerabilityEntry] = Field(default_factory=list)
+    total_score: float = 0.0 # Aggregated risk score
+    critical_count: int = 0
+    high_count: int = 0
+
+
+# =========================
+# SPECIALIZED SCAN CONTRACTS (Task 1.3)
+# =========================
+
+class SpecializedFindingResponse(BaseModel):
+    id: str
+    asset_id: str
+    job_type: str
+    data: Optional[Dict[str, Any]] = None
+    severity: str
+    detected_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class SpecializedJobRequest(BaseModel):
+    target_ip: str
+    agent_id: Optional[str] = None # Optional override
+

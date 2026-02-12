@@ -1,0 +1,14 @@
+[Unit]
+Description=Deco Download Server (Python Fallback)
+After=network.target
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=/opt/deco/downloads/windows
+ExecStart=/usr/bin/python3 /opt/deco/scripts/simple_server.py 8088
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'orchestrator_api'
+    static_configs:
+      - targets: ['orchestrator_api:8000']
+
+  - job_name: 'cognitive_api'
+    static_configs:
+      - targets: ['jarvis_cognitive_api:8001']
+
+  - job_name: 'activepieces'
+    static_configs:
+      - targets: ['activepieces:80']
+    metrics_path: /metrics # Verify if AP exposes metrics here
+
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node_exporter:9100']
+    # Note: node_exporter needs to be added to compose if we want host metrics

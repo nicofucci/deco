@@ -1,0 +1,84 @@
+import { NextRequest, NextResponse } from "next/server";
+
+const TARGET_URL = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "https://api.deco-security.com";
+
+async function proxyRequest(req: NextRequest, context: any) {
+    // Next.js 15+ / 16: params might be a Promise or context.params is a Promise
+    // We treat 'context' as 'any' to handle flexible signatures
+    let pathArray: string[] = [];
+
+    try {
+        // Attempt to resolve params safely
+        // If context.params is a promise, await it. If it's an object, await resolves to it.
+        const params = await context.params;
+        if (params && params.path) {
+            pathArray = params.path;
+        } else if (context.params && context.params.path) {
+            // Fallback if await didn't behave as expected or it's direct property
+            pathArray = context.params.path;
+        }
+    } catch (e) {
+        console.error("Params resolution error", e);
+    }
+
+    if (!pathArray || pathArray.length === 0) {
+        return NextResponse.json({ error: "Invalid Path" }, { status: 400 });
+    }
+
+    // 1. Construct Target URL
+    const pathJoined = pathArray.join("/");
+    const queryString = req.nextUrl.search;
+    const targetUrl = `${TARGET_URL}/${pathJoined}${queryString}`;
+
+    try {
+        // 2. Prepare Headers
+        const headers = new Headers();
+        const authKey = req.headers.get("x-partner-api-key");
+        if (authKey) headers.set("X-Partner-API-Key", authKey);
+
+        const contentType = req.headers.get("content-type");
+        if (contentType) headers.set("Content-Type", contentType);
+
+        // 3. Prepare Body
+        let body: any = null;
+        if (req.method !== "GET" && req.method !== "HEAD") {
+            const arrayBuffer = await req.arrayBuffer();
+            if (arrayBuffer.byteLength > 0) {
+                body = arrayBuffer;
+            }
+        }
+
+        // 4. Execute Fetch to Upstream
+        const response = await fetch(targetUrl, {
+            method: req.method,
+            headers: headers,
+            body: body,
+            // @ts-ignore
+            duplex: 'half'
+        });
+
+        // 5. Prepare Response
+        const responseHeaders = new Headers();
+        if (response.headers.has("Content-Type")) {
+            responseHeaders.set("Content-Type", response.headers.get("Content-Type")!);
+        }
+        if (response.headers.has("Content-Disposition")) {
+            responseHeaders.set("Content-Disposition", response.headers.get("Content-Disposition")!);
+        }
+
+        return new NextResponse(response.body, {
+            status: response.status,
+            headers: responseHeaders
+        });
+
+    } catch (error) {
+        console.error("Proxy Error:", error);
+        return NextResponse.json({ error: "Proxy Failed", details: String(error) }, { status: 500 });
+    }
+}
+
+export async function GET(req: NextRequest, ctx: any) { return proxyRequest(req, ctx); }
+export async function POST(req: NextRequest, ctx: any) { return proxyRequest(req, ctx); }
+export async function PUT(req: NextRequest, ctx: any) { return proxyRequest(req, ctx); }
+export async function DELETE(req: NextRequest, ctx: any) { return proxyRequest(req, ctx); }
+export async function PATCH(req: NextRequest, ctx: any) { return proxyRequest(req, ctx); }

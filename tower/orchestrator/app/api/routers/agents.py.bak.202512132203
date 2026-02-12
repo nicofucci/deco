@@ -1,0 +1,492 @@
+from datetime import datetime, timezone
+print("LOADING AGENTS MODULE -----------------------------------")
+from typing import List, Dict, Any
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_db, get_client_from_api_key
+
+from app.models.domain import Agent, Client, ScanJob, Partner
+from app.schemas.contracts import (
+    AgentRegisterRequest,
+    AgentRegisterResponse,
+    HeartbeatRequest,
+    HeartbeatResponse,
+    AgentJobResult,
+)
+from app.services.result_dispatcher import persist_result_and_update_job
+
+logger = logging.getLogger("DecoOrchestrator.AgentsAPI")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+
+def _map_job_type_for_agent(job_type: str) -> str:
+    """
+    Devuelve el tipo que espera el agente (compat con binarios antiguos).
+    - La UI usa 'ports'; el agente universal espera 'full'.
+    """
+    if job_type == "ports":
+        return "full"
+    return job_type
+
+router = APIRouter()
+
+@router.get("/version")
+def agent_version():
+    """
+    Endpoint mínimo para que los agentes comprueben versión sin fallar con 404.
+    """
+    return {"version": "1.0.0"}
+
+@router.get("/ping")
+def ping():
+    return {"status": "pong"}
+
+@router.post(
+    "/job_result",
+    summary="Endpoint legacy para recibir el resultado de un job de agente",
+)
+def agent_job_result(
+    payload: AgentJobResult,
+    db: Session = Depends(get_db),
+    client: Client = Depends(get_client_from_api_key),
+):
+    """
+    Compatibilidad con agentes existentes que envían resultados a /api/agents/job_result.
+    Normaliza el payload y deja el job en done/error.
+    """
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.id == payload.agent_id,
+            Agent.client_id == client.id,
+        )
+        .first()
+    )
+    if not agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agente no encontrado para este cliente",
+        )
+
+    job = (
+        db.query(ScanJob)
+        .filter(
+            ScanJob.id == payload.job_id,
+            ScanJob.client_id == client.id,
+        )
+        .first()
+    )
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job no encontrado para este cliente",
+        )
+
+    if job.agent_id and job.agent_id != agent.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Job asignado a otro agente",
+        )
+
+    raw_data = payload.data or {}
+    raw_data.setdefault("target", job.target)
+    raw_data.setdefault("job_type", job.type)
+    raw_data.setdefault("agent_id", agent.id)
+    if payload.error:
+        raw_data["error"] = payload.error
+
+    normalized_status = "done"
+    if payload.status and payload.status.lower() in ["failed", "error"]:
+        normalized_status = "error"
+
+    logger.info(
+        f"[JOB_RESULT] job={job.id} agente={agent.id} status={normalized_status}"
+    )
+
+    result = persist_result_and_update_job(
+        db=db,
+        job=job,
+        agent=agent,
+        raw_data=raw_data,
+        summary={},
+        job_status=normalized_status,
+    )
+
+    return {
+        "status": "ok",
+        "job_status": normalized_status,
+        "result_id": result.id,
+    }
+
+@router.post(
+    "/register",
+    response_model=AgentRegisterResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_agent(
+    payload: AgentRegisterRequest,
+    db: Session = Depends(get_db),
+    client: Client = Depends(get_client_from_api_key),
+):
+    """
+    Registra un nuevo agente para un cliente.
+
+    Autenticación:
+    - Necesita header: X-Client-API-Key
+    """
+    logger.info(f"[REGISTER] Solicitud recibida: hostname={payload.hostname} client_id={client.id} ip={payload.ip if hasattr(payload, 'ip') else 'unknown'}")
+    
+    # Check Partner Limits
+    if client.partner_id:
+        partner = db.query(Partner).filter(Partner.id == client.partner_id).first()
+        if partner:
+            # Count total agents for this partner
+            # We join Agent -> Client -> Partner
+            total_agents = db.query(Agent).join(Client).filter(Client.partner_id == partner.id).count()
+            effective_agent_limit = 1 if getattr(partner, "account_mode", "demo") == "demo" else partner.agent_limit
+            if total_agents >= effective_agent_limit:
+                # Check if this specific agent already exists (allow re-registration)
+                existing = db.query(Agent).filter(Agent.client_id == client.id, Agent.hostname == payload.hostname).first()
+                if not existing:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=403,
+                            content={
+                                "status": "blocked",
+                                "reason": "agent_limit_exceeded",
+                                "message": (
+                                    "Superaste el límite de la cuenta Demo (1 cliente / 1 agente)."
+                                    if getattr(partner, "account_mode", "demo") == "demo"
+                                    else "Has alcanzado el límite de agentes de tu plan. Compra un paquete."
+                                ),
+                            }
+                        )
+
+    # Check if agent already exists to update it instead of creating duplicate?
+    # Current logic creates new one. Let's check by hostname + client_id
+    existing_agent = db.query(Agent).filter(
+        Agent.client_id == client.id,
+        Agent.hostname == payload.hostname
+    ).first()
+
+    if existing_agent:
+        logger.info(f"[REGISTER] Agente existente encontrado (id={existing_agent.id}). Actualizando...")
+        existing_agent.status = "online"
+        existing_agent.last_seen_at = datetime.now(timezone.utc)
+        # Update other fields if needed
+        db.commit()
+        db.refresh(existing_agent)
+        return AgentRegisterResponse(
+            agent_id=existing_agent.id,
+            api_key=client.agent_api_key,
+            status="registered",
+        )
+
+    logger.info(f"[REGISTER] Creando NUEVO agente para hostname={payload.hostname}")
+    agent = Agent(
+        client_id=client.id,
+        hostname=payload.hostname,
+        name=payload.hostname,
+        status="online",
+        last_seen_at=datetime.now(timezone.utc),
+    )
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+
+    logger.info(f"[REGISTER] Agente creado: id={agent.id}")
+
+    response = AgentRegisterResponse(
+        agent_id=agent.id,
+        api_key=client.agent_api_key,
+        status="registered",
+    )
+    return response
+
+
+@router.post(
+    "/activate",
+    response_model=AgentRegisterResponse,
+    summary="Endpoint de compatibilidad para agentes legacy",
+)
+def activate_agent(
+    payload: AgentRegisterRequest,
+    db: Session = Depends(get_db),
+    client: Client = Depends(get_client_from_api_key),
+):
+    """
+    Compatibilidad con agentes que usan /activate en lugar de /register.
+    """
+    logger.info(f"[ACTIVATE] Solicitud legacy recibida: hostname={payload.hostname}")
+    return register_agent(payload, db, client)
+
+
+@router.post(
+    "/heartbeat",
+    response_model=HeartbeatResponse,
+)
+def agent_heartbeat(
+    payload: HeartbeatRequest,
+    db: Session = Depends(get_db),
+    client: Client = Depends(get_client_from_api_key),
+):
+    """
+    Heartbeat del agente:
+    - Actualiza estado y last_seen_at.
+    - Asigna jobs pendientes a este agente (si los hay).
+    - Devuelve lista de IDs de jobs a ejecutar.
+    """
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.id == payload.agent_id,
+            Agent.client_id == client.id,
+        )
+        .first()
+    )
+
+    if not agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agente no encontrado para este cliente",
+        )
+
+    # Actualizamos estado del agente
+    agent.status = payload.status
+    agent.last_seen_at = datetime.now(timezone.utc)
+    
+    # Update Network Info if present
+    if payload.local_ip:
+        agent.local_ip = payload.local_ip
+    if payload.ip:
+        agent.ip = payload.ip
+    if payload.primary_cidr:
+        agent.primary_cidr = payload.primary_cidr
+    if payload.interfaces:
+        agent.interfaces = payload.interfaces
+
+    # --- Fleet Guardian V1 ---
+    try:
+        from app.services.telemetry import AgentTelemetryProcessor
+        processor = AgentTelemetryProcessor(db)
+        # Convert Pydantic to dict for processor
+        telemetry_payload = payload.dict() 
+        processor.update_agent_status(agent.id, telemetry_payload)
+    except Exception as e:
+        logger.error(f"Error processing telemetry: {e}")
+    # -------------------------
+
+    # Seleccionamos jobs pendientes que:
+    # - pertenezcan al cliente
+    # - estén en estado 'pending'
+    # - no tengan agente asignado o ya estén asignados a este agente
+    pending_jobs = (
+        db.query(ScanJob)
+        .filter(
+            ScanJob.client_id == client.id,
+            ScanJob.status == "pending",
+        )
+        .order_by(ScanJob.created_at.asc())
+        .all()
+    )
+
+    logger.info(f"[HEARTBEAT_DEBUG] client={client.id} pending_jobs_found={len(pending_jobs)}")
+
+    now = datetime.now(timezone.utc)
+    job_ids: List[str] = []
+
+    for job in pending_jobs:
+        # Si tiene agent_id distinto de este agente, lo saltamos
+        if job.agent_id and job.agent_id != agent.id:
+            continue
+
+        job.agent_id = agent.id
+        if job.started_at is None:
+            job.started_at = now
+        
+        # FIX: Do not set to RUNNING here. Wait for ACK.
+        # job.status = "running"
+
+        job_ids.append(job.id)
+
+    # Re-exponemos jobs ya en running para que el agente pueda retomarlos
+    running_jobs = (
+        db.query(ScanJob)
+        .filter(
+            ScanJob.client_id == client.id,
+            ScanJob.status == "running",
+            ScanJob.agent_id == agent.id,
+        )
+        .order_by(ScanJob.created_at.asc())
+        .all()
+    )
+    for job in running_jobs:
+        if job.id not in job_ids:
+            job_ids.append(job.id)
+
+    db.commit()
+
+    logger.info(
+        f"[HEARTBEAT] agente={agent.id} status={agent.status} "
+        f"jobs_asignados={len(job_ids)}"
+    )
+
+    return HeartbeatResponse(
+        status="ok",
+        pending_jobs=job_ids,
+    )
+
+
+@router.get(
+    "/jobs",
+    summary="Lista jobs asignados para un agente (Protocolo ACK seguro)",
+)
+def list_agent_jobs(
+    agent_id: str,
+    db: Session = Depends(get_db),
+    client: Client = Depends(get_client_from_api_key),
+):
+    """
+    Devuelve los jobs pendientes/running para el agente.
+    - ZOMBIE FIX: Ya NO marca los jobs como 'running' aquí. 
+    - Solo asigna el agent_id (claiming).
+    - El agente DEBE llamar a POST /ack para confirmar inicio.
+    """
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.id == agent_id,
+            Agent.client_id == client.id,
+        )
+        .first()
+    )
+    if not agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agente no encontrado para este cliente",
+        )
+
+    now = datetime.now(timezone.utc)
+    jobs = (
+        db.query(ScanJob)
+        .filter(
+            ScanJob.client_id == client.id,
+            ScanJob.status.in_(["pending", "running"]),
+        )
+        .order_by(ScanJob.created_at.asc())
+        .all()
+    )
+
+    response_jobs: List[Dict[str, Any]] = []
+
+    for job in jobs:
+        if job.agent_id and job.agent_id != agent.id:
+            continue
+
+        # Claiming Logic
+        needs_commit = False
+        if job.agent_id is None:
+            job.agent_id = agent.id
+            # DO NOT SET RUNNING HERE
+            needs_commit = True
+        
+        # If it was assigned to me but still pending, we return it again
+        # so the agent can retry (idempotency).
+
+        response_jobs.append(
+            {
+                "id": job.id,
+                "type": _map_job_type_for_agent(job.type),
+                "original_type": job.type,
+                "target": job.target,
+                "status": job.status, # Likely 'pending' or 'running' if retrying after ack
+                "params": {"target": job.target},
+            }
+        )
+
+    db.commit()
+
+    logger.info(
+        f"[AGENT_JOBS] agente={agent.id} jobs_entregados={len(response_jobs)} (Esperando ACK)"
+    )
+
+    return response_jobs
+
+@router.post(
+    "/jobs/{job_id}/ack",
+    summary="Confirma inicio de ejecución del job (Anti-Zombie)",
+)
+def ack_job_start(
+    job_id: str,
+    db: Session = Depends(get_db),
+    client: Client = Depends(get_client_from_api_key),
+):
+    """
+    El agente llama a este endpoint justo antes de lanzar el proceso.
+    Solo AQUÍ pasamos el job a 'running'.
+    """
+    job = (
+        db.query(ScanJob)
+        .filter(
+            ScanJob.id == job_id,
+            ScanJob.client_id == client.id
+        )
+        .first()
+    )
+    if not job:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+
+    # Idempotencia: Si ya está running, devolvemos OK
+    if job.status == "running":
+        return {"status": "ok", "message": "already_running"}
+    
+    # Marcamos inicio
+    logger.info(f"[ACK] Job {job.id} confirmado por agente. Iniciando reloj.")
+    job.status = "running"
+    job.started_at = datetime.now(timezone.utc)
+    db.commit()
+    
+    return {"status": "ok", "started_at": job.started_at}
+
+
+@router.get(
+    "",
+    summary="Lista agentes de un cliente",
+)
+def list_agents(
+    db: Session = Depends(get_db),
+    client: Client = Depends(get_client_from_api_key),
+):
+    """
+    Lista todos los agentes asociados al cliente autenticado.
+    """
+    agents = (
+        db.query(Agent)
+        .filter(Agent.client_id == client.id)
+        .order_by(Agent.created_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": a.id,
+            "hostname": a.hostname,
+            "status": a.status,
+            "last_seen_at": a.last_seen_at,
+            "created_at": a.created_at,
+            "local_ip": a.local_ip,
+            "primary_cidr": a.primary_cidr,
+            "interfaces": a.interfaces,
+        }
+        for a in agents
+    ]

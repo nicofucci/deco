@@ -1,0 +1,432 @@
+version: '3.8'
+
+# 🌐 REDES SEGMENTADAS (VLANs)
+networks:
+  core_net:
+    driver: bridge
+    name: deco_core_vlan
+  cognitive_net:
+    driver: bridge
+    name: deco_cognitive_vlan
+  data_net:
+    driver: bridge
+    internal: true
+    name: deco_data_vlan
+  pentest_net:
+    driver: bridge
+    name: deco_pentest_vlan
+  hardware_net:
+    driver: bridge
+    internal: true
+    name: deco_hardware_vlan
+  dmz_net:
+    driver: bridge
+    name: deco_dmz_vlan
+
+# 💾 VOLÚMENES PERSISTENTES
+volumes:
+  postgres_data:
+  minio_data:
+  qdrant_data:
+  redis_data:
+  ollama_data:
+  activepieces_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+
+
+services:
+  # =========================================
+  # 🛡️ CORE LAYER (Orchestration & Business)
+  # =========================================
+
+  orchestrator_api:
+    build: ../tower/orchestrator
+    container_name: orchestrator_api
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ../tower/orchestrator:/app
+    networks:
+      - core_net
+    ports:
+      - "18001:8000"
+    environment:
+      - DATABASE_URL=postgresql://jarvis_user:change_me_securely@postgres:5432/jarvis_core
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=supersecretkey
+      - DECO_ADMIN_MASTER_KEY=MASTER_DECO
+    depends_on:
+      - postgres
+      - redis
+
+  orchestrator_proxy:
+    image: nginx:latest
+    container_name: orchestrator_proxy
+    volumes:
+      - /opt/deco/nginx/orchestrator_proxy.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - "18080:80"
+    depends_on:
+      - orchestrator_api
+    networks:
+      - core_net
+
+  jarvis_api_dev:
+    build: ../agent_runtime/jarvis_api
+    container_name: jarvis_api_dev
+    restart: unless-stopped
+    networks:
+      - core_net
+      - cognitive_net
+      - data_net
+      - pentest_net
+    ports:
+      - "8011:8000"
+    volumes:
+      - ../agent_runtime/jarvis_api:/app
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_URL=http://ollama:11434
+      - QDRANT_URL=http://qdrant:6333
+      - VULN_SERVICE_URL=http://vuln_service:8083
+    depends_on:
+      - postgres
+      - redis
+      - ollama
+      - qdrant
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  activepieces:
+    image: activepieces/activepieces:latest
+    container_name: activepieces
+    restart: unless-stopped
+    networks:
+      - core_net
+      - data_net
+      - pentest_net
+    environment:
+      - AP_POSTGRES_DATABASE=${POSTGRES_DB}
+      - AP_POSTGRES_HOST=postgres
+      - AP_POSTGRES_PORT=5432
+      - AP_POSTGRES_USERNAME=${POSTGRES_USER}
+      - AP_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - AP_REDIS_HOST=redis
+      - AP_REDIS_PORT=6379
+      - AP_API_KEY=${ACTIVEPIECES_API_KEY}
+      - AP_ENCRYPTION_KEY=${AP_ENCRYPTION_KEY}
+      - AP_JWT_SECRET=${AP_JWT_SECRET}
+      - AP_FRONTEND_URL=${AP_FRONTEND_URL}
+    depends_on:
+      - postgres
+      - redis
+
+  # =========================================
+  # 🧠 COGNITIVE LAYER (AI & Reasoning)
+  # =========================================
+
+  jarvis_cognitive_api:
+    image: python:3.11-slim # Placeholder
+    container_name: jarvis_cognitive_api
+    restart: unless-stopped
+    command: python -m http.server 8001
+    networks:
+      - cognitive_net
+      - data_net
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - QDRANT_HOST=qdrant
+    depends_on:
+      - ollama
+      - qdrant
+
+  jarvis_core:
+    build: ../agent_runtime/agents/jarvis_core
+    container_name: jarvis_core
+    restart: unless-stopped
+    networks:
+      - core_net
+      - cognitive_net
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL_DEFAULT=llama3.1:8b-instruct-q4_K_M
+      - QDRANT_URL=http://qdrant:6333
+      - VULN_SERVICE_URL=http://vuln_service:8083
+      - ENRICHMENT_SERVICE_URL=http://enrichment_service:8000
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      - ollama
+      - qdrant
+      - postgres
+      - vuln_service
+      - enrichment_service
+
+  dashboard:
+    build:
+      context: ../dashboard_admin
+      args:
+        NEXT_PUBLIC_ORCHESTRATOR_URL: https://api.deco-security.com
+    container_name: dashboard
+    restart: unless-stopped
+
+    ports:
+      - "3006:3006"
+    networks:
+      - core_net
+    environment:
+      - NEXT_PUBLIC_ORCHESTRATOR_URL=${NEXT_PUBLIC_ORCHESTRATOR_URL:-http://127.0.0.1:18001}
+      - INTERNAL_API_URL=http://orchestrator_api:8000
+      - ORCHESTRATOR_INTERNAL_URL=http://orchestrator_api:8000
+    depends_on:
+      - orchestrator_api
+    command: npm start -- -p 3006
+
+  dashboard_partner:
+    build:
+      context: ../dashboard_partners
+      args:
+        NEXT_PUBLIC_ORCHESTRATOR_URL: https://api.deco-security.com
+    container_name: deco-sec-dashboard-partner
+    restart: unless-stopped
+
+    ports:
+      - "3007:3007"
+    networks:
+      - core_net
+    environment:
+      # Externa (navegador): configurable por entorno; local -> 127.0.0.1:18001, prod -> https://api.deco-security.com
+      - NEXT_PUBLIC_ORCHESTRATOR_URL=${NEXT_PUBLIC_ORCHESTRATOR_URL:-http://127.0.0.1:18001}
+      # Interna (SSR/servidor Next): resuelve al contenedor FastAPI en la red docker
+      - ORCHESTRATOR_INTERNAL_URL=http://orchestrator_api:8000
+    depends_on:
+      - orchestrator_api
+    command: npm start -- -p 3007
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:3007/login || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  dashboard_client:
+    build:
+      context: ../dashboard_security
+      args:
+        NEXT_PUBLIC_ORCHESTRATOR_URL: https://api.deco-security.com
+    container_name: deco-sec-dashboard-client
+    restart: unless-stopped
+
+    ports:
+      - "3005:3005"
+    networks:
+      - core_net
+    environment:
+      - NEXT_PUBLIC_ORCHESTRATOR_URL=${NEXT_PUBLIC_ORCHESTRATOR_URL:-http://127.0.0.1:18001}
+      - ORCHESTRATOR_INTERNAL_URL=http://orchestrator_api:8000
+    depends_on:
+      - orchestrator_api
+    command: npm start -- -p 3005
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - cognitive_net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: deco-qdrant
+    restart: unless-stopped
+    volumes:
+      - /home/leoslo/agent/runtime/qdrant:/qdrant/storage
+    networks:
+      - cognitive_net
+      - data_net
+
+  # =========================================
+  # 💾 DATA LAYER (Persistence)
+  # =========================================
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - core_net
+      - data_net
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - data_net
+      - dmz_net
+    environment:
+      - MINIO_ROOT_USER=${MINIO_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio_init
+    depends_on:
+      - minio
+    networks:
+      - data_net
+    volumes:
+      - ../agent_runtime/scripts/create_buckets.sh:/create_buckets.sh
+    environment:
+      - MINIO_ROOT_USER=${MINIO_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
+    entrypoint: [ "/bin/sh", "/create_buckets.sh" ]
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - data_net
+      - core_net
+
+  # =========================================
+  # 🌐 GATEWAY & DMZ
+  # =========================================
+
+  nginx_gateway:
+    image: nginx:alpine
+    container_name: nginx_gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - dmz_net
+      - core_net
+      - cognitive_net
+    volumes:
+      - ../agent_runtime/config/nginx:/etc/nginx/conf.d:ro
+      - ../agent_runtime/downloads:/var/www/deco-downloads
+    depends_on:
+      - orchestrator_api
+      - jarvis_cognitive_api
+      - activepieces
+      - grafana
+
+  # =========================================
+  # 👁️ OBSERVABILITY STACK
+  # =========================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - prometheus_data:/prometheus
+      - ../agent_runtime/config/prometheus:/etc/prometheus:ro
+    networks:
+      - core_net
+      - cognitive_net
+      - dmz_net
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: loki
+    restart: unless-stopped
+    volumes:
+      - loki_data:/loki
+    networks:
+      - core_net
+      - dmz_net
+
+  pentest_worker:
+    build: ../agent_runtime/agents/pentest_worker
+    container_name: pentest_worker
+    restart: unless-stopped
+    networks:
+      - pentest_net
+    volumes:
+      # - ../agent_runtime/agents/pentest_worker/results:/app/results
+      - ../agent_runtime/agents/pentest_worker/scan_profiles.yaml:/app/scan_profiles.yaml
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  vuln_service:
+    build: ../agent_runtime/agents/vuln_service
+    container_name: vuln_service
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    networks:
+      - core_net
+      - pentest_net
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - PENTEST_WORKER_URL=http://pentest_worker:8082
+    depends_on:
+      - postgres
+      - pentest_worker
+
+  enrichment_service:
+    build: ../agent_runtime/agents/enrichment_service
+    container_name: enrichment_service
+    restart: unless-stopped
+    networks:
+      - core_net
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - SHODAN_API_KEY=${SHODAN_API_KEY:-}
+    depends_on:
+      - postgres
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - dmz_net
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+
+  # =========================================
+  # ☁️ CLOUDFLARE TUNNEL
+  # =========================================
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: deco-cloudflared
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TUNNEL_TOKEN=eyJhIjoiMzBmMTc1MjY5ZDA3NjAxYTkwMjI5ZmUxN2UwOTFmYWQiLCJ0IjoiNDkyMTI3NmUtOWNjMi00OWI1LWEwMWEtNTM1Njg1YTk1ZjdjIiwicyI6Ik4yTTBOR1ptTnpVdFlUVXlNQzAwWlRNd0xXSmpObU10WkdReU5EVm1ZakZpTkdFeCJ9
+    command: tunnel run

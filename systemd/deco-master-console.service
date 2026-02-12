@@ -1,0 +1,15 @@
+[Unit]
+Description=Deco Security Master Console (Port 3006)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/deco/dashboard_admin
+Environment="NODE_ENV=production"
+Environment="PORT=3006"
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
